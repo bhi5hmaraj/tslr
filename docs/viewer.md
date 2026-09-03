@@ -15,6 +15,16 @@ construction is adjustable — but the sides and diagonal are editable inputs,
 because the page closes the quadrilateral itself and those are the figures most
 likely to change when the tape comes out.
 
+Drag to pan, wheel to zoom, double-click or **fit** to reset. The drawing is
+re-rendered at each view rather than transformed, so text keeps a constant size
+and the label placer sees the room a zoom creates — labels that had to sit out in
+the margin move back onto their own segments as you zoom in.
+
+A dotted blue line always shows where a **20 ft** road's inner edge would run,
+whatever the road is currently set to, with the point where it crosses the
+rectangle's top edge marked: east of that crossing a 20 ft road would not fit.
+At exactly 20 ft the line lies on the road's inner edge and there is no crossing.
+
 ## Explain mode
 
 The same model, one move at a time, with a slider and arrow keys. Nine steps:

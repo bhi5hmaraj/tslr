@@ -3,13 +3,16 @@
 <style>* { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.45 -apple-system, Helvetica, Arial, sans-serif;
        color: #111; background: #fff; display: flex; height: 100vh; }
-#left { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+#left { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0;
+        position: relative; }
 #right { flex: 0 0 380px; border-left: 1px solid #ddd; padding: 18px 20px;
          overflow: auto; background: #fafafa; }
 header { padding: 14px 20px 6px; }
 h1 { font-size: 16px; margin: 0; }
 .meta { color: #666; font-size: 12px; margin-top: 3px; }
-#plan { flex: 1 1 auto; width: 100%; min-height: 0; }
+#plan { flex: 1 1 auto; width: 100%; min-height: 0; cursor: grab;
+        touch-action: none; }
+#plan.grabbing { cursor: grabbing; }
 
 .piece { transition: fill-opacity .1s; }
 .piece.hi { fill-opacity: .55; stroke-width: 3; }
@@ -90,6 +93,15 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 .leader.hi { stroke: #000; stroke-width: 1.5; }
 .a-end { text-anchor: end; }
 .a-start { text-anchor: start; }
+.w20 { stroke: #0033aa; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+.w20dot { fill: #0033aa; stroke: #fff; stroke-width: 1.2; }
+.w20lab { font-size: 10.5px; fill: #0033aa; font-weight: 600;
+          paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+#zoom { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 4px; }
+#zoom button { min-width: 30px; height: 28px; padding: 0 8px; font: inherit;
+               font-size: 15px; border: 1px solid #ccc; border-radius: 5px;
+               background: rgba(255,255,255,.92); cursor: pointer; }
+#zoom button:hover { background: #eee; }
 </style>
 <div id="left">
   <header>
@@ -98,6 +110,8 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
       <span id="l-slant"></span> <span id="slant"></span>°</div>
   </header>
   <svg id="plan"></svg>
+  <div id="zoom"><button id="zout">−</button><button id="zfit"></button
+    ><button id="zin">+</button></div>
 </div>
 <div id="right">
   <button id="lang"></button>
@@ -163,6 +177,7 @@ const I18N = {
     checkFail: w => "self-check FAILED: " + w,
     checkEdited: "sides edited — self-check applies to the recorded plot only",
     working: "How each number is got, from the four recorded sides:",
+    fit: "fit",
     diagTaped: "Ours was taped on site.",
     diagGuessed: "Ours is <b>not yet taped</b> — it comes from four corners read " +
                  "off satellite imagery, good to about ±1.2 m, which is ±17 m² of " +
@@ -244,6 +259,7 @@ const I18N = {
     checkFail: w => "சுய சரிபார்ப்பு தவறு: " + w,
     checkEdited: "பக்க அளவுகள் மாற்றப்பட்டன — சுய சரிபார்ப்பு பதிவு அளவுகளுக்கு மட்டுமே",
     working: "பதிவான நான்கு பக்க அளவுகளிலிருந்து ஒவ்வொரு எண்ணும் எப்படி வருகிறது:",
+    fit: "பொருத்து",
     diagTaped: "நமது அளவு தரையில் நாடாவால் அளக்கப்பட்டது.",
     diagGuessed: "நமது அளவு <b>இன்னும் நாடாவால் அளக்கப்படவில்லை</b> — செயற்கைக்கோள் " +
                  "படத்திலிருந்து படித்த நான்கு மூலைகளிலிருந்து வந்தது, சுமார் ±1.2 மீ " +
@@ -423,6 +439,12 @@ const Geom = {
     const footW = Geom.dist(A, at(xW, 0));
 
     const rect = [at(xW, 0), at(base, 0), at(base, depth), at(xW, depth)];
+    // A 20 ft road is the width worth having; show where its inner edge would
+    // run whatever the current road is, and where it would cross the rectangle's
+    // top edge -- east of that crossing a 20 ft road would not fit.
+    const drop20 = 20 / Math.cos(slant);
+    const inner20 = x => height(x) - drop20;
+    const hit20 = base * (hW - depth - drop20) / (hW - hE);
     const t3foot = Geom.foot(E, B, at(base, depth));   // E onto the rectangle's east edge
     const t3h = Geom.dist(E, t3foot);
     const lotW = width / lots;
@@ -473,6 +495,9 @@ const Geom = {
              }),
              G: at(xW, 0), H: at(base, depth), J: at(xW, depth),
              t3foot, t3h, t1h,
+             w20: { a: at(-20, inner20(-20)), b: at(base + 20, inner20(base + 20)),
+                    hit: hit20 > xW && hit20 < base ? at(hit20, depth) : null,
+                    run: Math.max(0, Math.min(hit20, base) - xW) },
              dAngle: (() => {
                const [u1] = Geom.unit(D, A), [u2] = Geom.unit(D, C);
                return Math.acos(Geom.dot(u1, u2)) * 180 / Math.PI;
@@ -498,20 +523,23 @@ const Render = {
   // lot1..lotN are slices of the rectangle and carry its colour
   fill(key) { return Render.fills[key] || Render.fills.rect; },
 
-  project(m, box, padX = 118, padY = 54) {
+  project(m, box, padX = 96, padY = 44) {
     const all = [m.A, m.B, m.C, m.D];
     const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
     const [x0, y0] = [Math.min(...xs), Math.min(...ys)];
     const [wf, hf] = [Math.max(...xs) - x0, Math.max(...ys) - y0];
-    const k = Math.min((box.w - 2 * padX) / wf, (box.h - 2 * padY) / hf);
-    const ox = (box.w - wf * k) / 2, oy = (box.h - hf * k) / 2;   // centred both ways
-    return { k, X: p => [ox + (p[0] - x0) * k, box.h - oy - (p[1] - y0) * k] };
+    const k0 = Math.min((box.w - 2 * padX) / wf, (box.h - 2 * padY) / hf);
+    const ox = (box.w - wf * k0) / 2, oy = (box.h - hf * k0) / 2;  // centred both ways
+    const { z, t } = UI.view;
+    return { k: k0 * z,
+             X: p => [(ox + (p[0] - x0) * k0) * z + t[0],
+                      (box.h - oy - (p[1] - y0) * k0) * z + t[1]] };
   },
 
   // One placer for both views: a rotated label is as long as its text, so each is
   // modelled as three points along its own baseline and kept clear of the rest.
   // Anything with nowhere left to sit goes out to the margin on an arrow.
-  placeLabels(out, items, X, ctr, px0, px1, seed = []) {
+  placeLabels(out, items, X, ctr, px0, px1, seed = [], bw = Infinity) {
     const placed = seed.slice(), gutter = [];
     out.push(`<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4"
       markerWidth="6" markerHeight="6" orient="auto-start-reverse">
@@ -546,7 +574,7 @@ const Render = {
       }
       const cm = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
       const left = cm[0] < ctr[0];
-      const gx = left ? px0 - 22 : px1 + 22;
+      const gx = left ? Math.max(66, px0 - 22) : Math.min(bw - 66, px1 + 22);
       let gy = cm[1];
       while (gutter.some(g => g[0] === left && Math.abs(g[1] - gy) < 15)) gy += 15;
       gutter.push([left, gy]);
@@ -574,15 +602,33 @@ const Render = {
                  fill="${f}" stroke="${s}" stroke-width="1.5"/>`);
     }
     out.push(`<path d="${path([m.A, m.B, m.C, m.D])}" fill="none" stroke="#000" stroke-width="2.5"/>`);
+    // where a 20 ft road's inner edge would run, whatever the road is set to
+    out.push(`<clipPath id="plot"><path d="${path([m.A, m.B, m.C, m.D])}"/></clipPath>`);
+    const [w20a, w20b] = [X(m.w20.a), X(m.w20.b)];
+    out.push(`<line x1="${w20a[0]}" y1="${w20a[1]}" x2="${w20b[0]}" y2="${w20b[1]}"
+               class="w20" clip-path="url(#plot)"/>`);
+    if (m.w20.hit) {
+      const [hx, hy] = X(m.w20.hit);
+      out.push(`<circle cx="${hx}" cy="${hy}" r="3.5" class="w20dot"/>`);
+      out.push(`<text x="${hx}" y="${hy - 9}" class="w20lab">20 ft ⟂ runs out
+                 · ${L(m.w20.run)} of ${L(m.width)}</text>`);
+    }
     for (const [a, b] of [[m.at(m.xW, 0), m.F], [m.B, m.at(m.base, m.depth)]]) {
       const [p, q] = [X(a), X(b)];
       out.push(`<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"
                  stroke="#a00" stroke-width="2"/>`);
     }
+    const fixed = [];                       // piece names and the 20 ft caption
+    if (m.w20.hit) {
+      const [hx, hy] = X(m.w20.hit);
+      fixed.push([[hx - 78, hy - 9], [hx, hy - 9], [hx + 78, hy - 9]]);
+    }
     for (const p of m.pieces) {
       const c = p.poly.reduce((a, q) => [a[0] + q[0] / p.poly.length, a[1] + q[1] / p.poly.length], [0, 0]);
       const [cx, cy] = X(c);
       const big = Geom.shoelace(p.poly) * k * k > 30000;
+      const w2 = (big ? p.name.length * 5.2 : 12);
+      fixed.push([[cx - w2, cy], [cx, cy], [cx + w2, cy]]);
       // Wide pieces carry their name and arithmetic. A sliver carries its tag
       // alone, turned to run along its own longest edge so it stays inside the
       // shape instead of lying across the drawing.
@@ -626,7 +672,7 @@ const Render = {
     const px0 = Math.min(...bx.map(q => q[0])), px1 = Math.max(...bx.map(q => q[0]));
     Render.placeLabels(out, [...seen.values()].map(([a2, b2]) =>
       ({ a: a2, b: b2, label: spanTxt(a2, b2) })), X, ctr, px0, px1,
-      [...verts.values()].map(v => [X(v)]));
+      [...fixed, ...[...verts.values()].map(v => [X(v)])], box.w);
 
     // the four recorded boundaries, outside the plot
     const single = ([a2, b2]) => [...seen.values()].some(([u, v]) =>
@@ -815,7 +861,7 @@ const Explain = {
       step.segs.map(([a, b]) => ({ a, b,
         label: `${m.nameOf(a)}${m.nameOf(b)} = ${L(Geom.dist(a, b))}` })),
       X, ctr, Math.min(...bx.map(q => q[0])), Math.max(...bx.map(q => q[0])),
-      [...seedAngles, ...step.marks.map(v => [X(v)])]);
+      [...seedAngles, ...step.marks.map(v => [X(v)])], box.w);
 
     for (const v of step.marks) {
       const nm = m.nameOf(v);
@@ -892,6 +938,44 @@ const UI = {
 
   mode: "plan",
   step: 0,
+  view: { z: 1, t: [0, 0] },
+
+  zoomAt(c, factor) {
+    const v = UI.view, z2 = Math.min(12, Math.max(0.4, v.z * factor));
+    v.t = [c[0] - (c[0] - v.t[0]) * (z2 / v.z), c[1] - (c[1] - v.t[1]) * (z2 / v.z)];
+    v.z = z2;
+    UI.draw();
+  },
+
+  fit() { UI.view = { z: 1, t: [0, 0] }; UI.draw(); },
+
+  wirePanZoom() {
+    const svg = document.querySelector("#plan");
+    svg.addEventListener("wheel", e => {
+      e.preventDefault();
+      const b = svg.getBoundingClientRect();
+      UI.zoomAt([e.clientX - b.left, e.clientY - b.top], Math.exp(-e.deltaY * 0.0015));
+    }, { passive: false });
+    let from = null;
+    svg.addEventListener("pointerdown", e => {
+      from = [e.clientX, e.clientY]; svg.setPointerCapture(e.pointerId);
+      svg.classList.add("grabbing");
+    });
+    svg.addEventListener("pointermove", e => {
+      if (!from) return;
+      UI.view.t = [UI.view.t[0] + e.clientX - from[0], UI.view.t[1] + e.clientY - from[1]];
+      from = [e.clientX, e.clientY];
+      UI.draw();
+    });
+    for (const ev of ["pointerup", "pointercancel", "pointerleave"])
+      svg.addEventListener(ev, () => { from = null; svg.classList.remove("grabbing"); });
+    svg.addEventListener("dblclick", () => UI.fit());
+    document.querySelector("#zin").onclick = () =>
+      UI.zoomAt([svg.clientWidth / 2, svg.clientHeight / 2], 1.4);
+    document.querySelector("#zout").onclick = () =>
+      UI.zoomAt([svg.clientWidth / 2, svg.clientHeight / 2], 1 / 1.4);
+    document.querySelector("#zfit").onclick = () => UI.fit();
+  },
 
   explain() {
     const $ = s2 => document.querySelector(s2);
@@ -935,6 +1019,7 @@ const UI = {
     set("l-road", T("roadLabel"));
     set("l-lots", T("splitLabel"));
     set("l-metric", T("metres"));
+    set("zfit", T("fit"));
     set("l-closure", T("closure"));
     set("l-slant", T("slants"));
     const f = document.getElementById("l-foot");
@@ -967,6 +1052,7 @@ const UI = {
       if (document.getElementById(k)) document.getElementById(k).value = v;
     document.querySelectorAll("input").forEach(e => e.addEventListener("input", UI.draw));
     addEventListener("resize", UI.draw);
+    UI.wirePanZoom();
     UI.applyLang();
   },
 };

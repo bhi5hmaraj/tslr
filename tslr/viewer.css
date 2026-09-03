@@ -1,13 +1,16 @@
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.45 -apple-system, Helvetica, Arial, sans-serif;
        color: #111; background: #fff; display: flex; height: 100vh; }
-#left { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+#left { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0;
+        position: relative; }
 #right { flex: 0 0 380px; border-left: 1px solid #ddd; padding: 18px 20px;
          overflow: auto; background: #fafafa; }
 header { padding: 14px 20px 6px; }
 h1 { font-size: 16px; margin: 0; }
 .meta { color: #666; font-size: 12px; margin-top: 3px; }
-#plan { flex: 1 1 auto; width: 100%; min-height: 0; }
+#plan { flex: 1 1 auto; width: 100%; min-height: 0; cursor: grab;
+        touch-action: none; }
+#plan.grabbing { cursor: grabbing; }
 
 .piece { transition: fill-opacity .1s; }
 .piece.hi { fill-opacity: .55; stroke-width: 3; }
@@ -88,3 +91,12 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 .leader.hi { stroke: #000; stroke-width: 1.5; }
 .a-end { text-anchor: end; }
 .a-start { text-anchor: start; }
+.w20 { stroke: #0033aa; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
+.w20dot { fill: #0033aa; stroke: #fff; stroke-width: 1.2; }
+.w20lab { font-size: 10.5px; fill: #0033aa; font-weight: 600;
+          paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+#zoom { position: absolute; right: 16px; bottom: 16px; display: flex; gap: 4px; }
+#zoom button { min-width: 30px; height: 28px; padding: 0 8px; font: inherit;
+               font-size: 15px; border: 1px solid #ccc; border-radius: 5px;
+               background: rgba(255,255,255,.92); cursor: pointer; }
+#zoom button:hover { background: #eee; }
