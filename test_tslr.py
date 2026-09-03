@@ -133,6 +133,33 @@ def test_a_block_that_leaves_the_land_is_refused():
         Block(site, 20.0, [A, B, C, D], 0.0, 3)
 
 
+def test_four_sided_lots_leave_nothing_over():
+    """The v8 question, answered the other way: keep a real 20 ft road and drop
+    the rectangle. Lots cut straight across the land tile it exactly, so the
+    offcuts vanish -- and they beat v8's own figure while keeping the road."""
+    from tslr.optimize_lot import Fan, best_block, buildable
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    region, _ = buildable(site, 20.0)
+    f = Fan(site, 20.0, 3)                       # audits itself: equal, and no waste
+    assert abs(f.tally()["lots"] - region.area) < 0.01
+    assert f.tally()["waste"] == 0.0
+    assert f.lot_area > best_block(site, 20.0, 3).lot_area
+    assert f.tally()["lots"] > 14245, "should beat v8, which had no road left"
+    # the corner lot is what pays: every other lot stays near square
+    sharp = [min(c) for c in f.corners()]
+    assert min(sharp) < 70 and sorted(sharp)[1] > 80, sharp
+    assert all(len(g.exterior.coords) - 1 == 4 for g in f.lots)
+
+
+def test_a_fan_that_is_not_equal_is_refused():
+    from tslr.optimize_lot import Fan
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    f = Fan(site, 20.0, 3)
+    f.lots = [f.lots[0], f.lots[1], f.lots[2].buffer(-1)]
+    with pytest.raises(AssertionError, match="not equal"):
+        f.audit()
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

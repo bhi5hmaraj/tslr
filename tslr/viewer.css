@@ -83,6 +83,9 @@ body.explaining #stepper { display: block; }
 .hilite { stroke: #d32f2f; stroke-width: 3; }
 body.explaining .grid, body.explaining label[for=road], body.explaining label[for=lots],
 body.explaining label[for=turn] { opacity: .45; }
+/* four-sided lots fill the land whatever the turn, so the turn knob does nothing */
+body.fanning label[for=turn], body.fanning label[for=turn] + .row { opacity: .4; }
+body.fanning #turn, body.fanning #bestturn { pointer-events: none; }
 body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2px; padding: 2px 9px; font: inherit;
         font-size: 12px; border: 1px solid #bbb; border-radius: 4px;
         background: #fff; cursor: pointer; }

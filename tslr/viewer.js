@@ -19,7 +19,7 @@ const I18N = {
     splitLabel: "Split the rectangle", oneRect: "one rectangle",
     lots: n => `${n} equal lots`, metres: "metres",
     turnLabel: "Turn the block off the south boundary",
-    squareOn: "square to the south boundary", bestBtn: "best",
+    squareOn: "square to AB", bestBtn: "best",
     offcut: n => `Offcut ${n}`,
     turnNote: (a, d) => `Largest rectangle at ${a}° inside the land the road ` +
       `leaves. ${d}` ,
@@ -27,6 +27,11 @@ const I18N = {
       `(${g > 0 ? "+" : ""}${c} cents) against squaring it to the south boundary.`,
     turnExplain: "Step-by-step covers the squared construction — set the turn " +
                  "back to 0° to walk through it.",
+    fanLabel: "Four-sided lots — no waste at all",
+    fanNote: (a, c, w) => `Cut straight across the land the road leaves, square ` +
+      `to the road. Nothing is left over. Each lot ${a} ft² (${c} cents), ` +
+      `${w} ft² more per lot than rectangles squared to the south boundary.`,
+    fanCorner: d => `The corner lot's sharpest angle is ${d}°.`,
     explainBtn: "Explain this construction", backBtn: "← back to the plan",
     closure: "closure", slants: "north boundary slants",
     footer: "Road runs the full north boundary D→C; its inner edge meets the west " +
@@ -111,7 +116,7 @@ const I18N = {
     splitLabel: "செவ்வகத்தைப் பிரி", oneRect: "ஒரே செவ்வகம்",
     lots: n => `${n} சம மனைகள்`, metres: "மீட்டர்",
     turnLabel: "தெற்கு எல்லையிலிருந்து தொகுதியைத் திருப்பு",
-    squareOn: "தெற்கு எல்லைக்கு நேராக", bestBtn: "சிறந்தது",
+    squareOn: "AB க்கு நேராக", bestBtn: "சிறந்தது",
     offcut: n => `மீதி ${n}`,
     turnNote: (a, d) => `சாலை விட்டுச் செல்லும் நிலத்தில் ${a}° கோணத்தில் ` +
       `பொருந்தும் மிகப்பெரிய செவ்வகம். ${d}`,
@@ -119,6 +124,11 @@ const I18N = {
       `${g > 0 ? "+" : ""}${g.toLocaleString()} ச.அடி (${g > 0 ? "+" : ""}${c} சென்ட்).`,
     turnExplain: "படிப்படியான விளக்கம் நேரான அமைப்புக்கு மட்டுமே — திருப்பத்தை " +
                  "0° ஆக்கினால் அதைப் பார்க்கலாம்.",
+    fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
+    fanNote: (a, c, w) => `சாலை விட்டுச் செல்லும் நிலத்தை சாலைக்கு நேராக ` +
+      `நேர்க்கோட்டில் வெட்டியது. மீதம் எதுவும் இல்லை. ஒவ்வொரு மனையும் ${a} ச.அடி ` +
+      `(${c} சென்ட்), தெற்கு எல்லைக்கு நேரான செவ்வகங்களை விட ${w} ச.அடி அதிகம்.`,
+    fanCorner: d => `மூலை மனையின் கூர்மையான கோணம் ${d}°.`,
     explainBtn: "இந்த அமைப்பை விளக்கு", backBtn: "← வரைபடத்திற்குத் திரும்பு",
     closure: "மொத்த அளவு", slants: "வடக்கு எல்லையின் சாய்வு",
     footer: "சாலை வடக்கு எல்லை முழுவதும் D→C செல்கிறது; அதன் உட்புற விளிம்பு மேற்கு " +
@@ -411,6 +421,41 @@ const Geom = {
                            why: Geom.fanWhy(poly), area: Math.abs(Geom.shoelace(poly)) }));
   },
 
+  // n equal-area slices of a convex region, cut by straight lines square to the
+  // direction a->b. Nothing is left over, so every square foot is in a lot.
+  bands(region, a, b, n) {
+    const [u] = Geom.unit(a, b);
+    const proj = q => (q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1];
+    const ts = region.map(proj), lo = Math.min(...ts), hi = Math.max(...ts);
+    const on = t => [a[0] + u[0] * t, a[1] + u[1] * t];
+    const band = (t0, t1) => {
+      const [p0, p1] = [on(t0), on(t1)];
+      const perp = q => [q[0] - u[1], q[1] + u[0]];
+      let g = Geom.clipHalf(region, p0, perp(p0), on(t0 + 10), 1);
+      return Geom.clipHalf(g, p1, perp(p1), on(t1 - 10), 1);
+    };
+    const whole = Math.abs(Geom.shoelace(region));
+    const cuts = [];
+    for (let i = 1; i < n; i++) {
+      let c = cuts.length ? cuts[cuts.length - 1] : lo, e = hi;
+      for (let k = 0; k < 60; k++) {
+        const mid = (c + e) / 2;
+        if (Math.abs(Geom.shoelace(band(lo, mid))) < whole * i / n) c = mid; else e = mid;
+      }
+      cuts.push((c + e) / 2);
+    }
+    const edge = [lo, ...cuts, hi];
+    return edge.slice(0, -1).map((t, i) => band(t, edge[i + 1]));
+  },
+
+  corners(poly) {
+    return poly.map((q, i) => {
+      const p = poly[(i - 1 + poly.length) % poly.length], r = poly[(i + 1) % poly.length];
+      const [v1] = Geom.unit(q, p), [v2] = Geom.unit(q, r);
+      return Math.acos(Math.max(-1, Math.min(1, Geom.dot(v1, v2)))) * 180 / Math.PI;
+    });
+  },
+
   // Arithmetic anyone can re-add: split the shape into triangles from its first
   // corner and give each one its own base and height.
   fanWhy(poly) {
@@ -423,7 +468,7 @@ const Geom = {
     return parts.join(" + ");
   },
 
-  construct(corners, roadW, lots = 1, turn = 0) {
+  construct(corners, roadW, lots = 1, turn = 0, fan = false) {
     const [A, B, C, D] = corners;
     const P = Geom.foot(D, A, B);
     const Q = Geom.crossTo(B, A, B, D, C);
@@ -463,12 +508,18 @@ const Geom = {
     const [b0, b1, b2, b3] = block;
     const lotW = Geom.dist(b0, b1) / lots, blockD = Geom.dist(b1, b2);
     const cut = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
-    const lotPieces = Array.from({ length: lots }, (_, i) => ({
+    // Four-sided lots tile the quad exactly, so nothing is left over at all.
+    // The corner lot pays for that in shape rather than in area.
+    const lotPolys = fan
+      ? Geom.bands(region, F, E, lots)
+      : Array.from({ length: lots }, (_, i) =>
+          [cut(b0, b1, i / lots), cut(b0, b1, (i + 1) / lots),
+           cut(b3, b2, (i + 1) / lots), cut(b3, b2, i / lots)]);
+    const lotPieces = lotPolys.map((poly, i) => ({
       key: lots > 1 ? `lot${i + 1}` : "rect",
-      nk: lots > 1 ? "lot" : "Rectangle", ni: i + 1,
-      poly: [cut(b0, b1, i / lots), cut(b0, b1, (i + 1) / lots),
-             cut(b3, b2, (i + 1) / lots), cut(b3, b2, i / lots)],
-      why: `${lotW.toFixed(2)} × ${blockD.toFixed(2)}`, area: lotW * blockD }));
+      nk: lots > 1 ? "lot" : "Rectangle", ni: i + 1, poly,
+      why: fan ? Geom.fanWhy(poly) : `${lotW.toFixed(2)} × ${blockD.toFixed(2)}`,
+      area: fan ? Math.abs(Geom.shoelace(poly)) : lotW * blockD }));
     const roadPiece = { key: "road", nk: "Road", poly: [F, E, C, D],
       why: `(${Geom.dist(D, C).toFixed(2)} + ${Geom.dist(F, E).toFixed(2)})/2 × ${roadW.toFixed(2)} ⟂`,
       area: (Geom.dist(D, C) + Geom.dist(F, E)) / 2 * roadW };
@@ -482,7 +533,7 @@ const Geom = {
         area: Geom.dist(B, at(base, depth)) * t3h / 2 },
     ];
     const pieces = [roadPiece, ...lotPieces,
-                    ...(turn ? Geom.offcuts(region, block) : squared)];
+                    ...(fan ? [] : turn ? Geom.offcuts(region, block) : squared)];
     // Every vertex gets a letter; A-D are the plot corners and F, E the feet of
     // the road's inner edge, so a length can be quoted as the pair it spans.
     const vkey = q => q.map(v => v.toFixed(2)).join();
@@ -505,7 +556,7 @@ const Geom = {
     }
     const plot = Geom.shoelace(corners);
     return { A, B, C, D, P, Q, F, E, at, height, inner, base, xW, width, depth,
-             hW, hE, slant: slant * 180 / Math.PI, roadW, rect: block, turn,
+             hW, hE, slant: slant * 180 / Math.PI, roadW, rect: block, turn, fan,
              region, lots, lotW, blockD,
              pieces, plot, nameOf,
              allVertices: [...reg.keys()].map(kk => kk.split(",").map(Number)),
@@ -518,7 +569,7 @@ const Geom = {
              G: at(xW, 0), H: at(base, depth), J: at(xW, depth),
              t3foot, t3h, t1h,
              w20: { a: at(-400, inner20(-400)), b: at(base + 400, inner20(base + 400)),
-                    hit: turn ? null : hitPt,
+                    hit: turn || fan ? null : hitPt,
                     run: Math.max(0, Math.min(hit20, base) - xW) },
              dAngle: (() => {
                const [u1] = Geom.unit(D, A), [u2] = Geom.unit(D, C);
@@ -748,6 +799,16 @@ const Render = {
 
   // What the turn buys, in the same units as the schedule under it.
   turnNote(m, metric) {
+    if (m.fan) {
+      const flat = Geom.construct([m.A, m.B, m.C, m.D], m.roadW, m.lots, 0, false);
+      const each = m.pieces.filter(p => p.key === "rect" || p.key.startsWith("lot"));
+      const was = flat.pieces.filter(p => p.key === "rect" || p.key.startsWith("lot"));
+      const gain = Math.round(each[0].area - was[0].area);
+      const sharp = Math.min(...m.pieces.filter(p => p.key.startsWith("lot") || p.key === "rect")
+        .flatMap(p => Geom.corners(p.poly)));
+      return `<p class="note">${T("fanNote", fmt.ft2(each[0].area),
+        fmt.cents(each[0].area), gain.toLocaleString())} ${T("fanCorner", sharp.toFixed(0))}</p>`;
+    }
     if (!m.turn) return "";
     const flat = Geom.construct([m.A, m.B, m.C, m.D], m.roadW, m.lots, 0);
     const block = p => p.pieces.filter(q => q.key === "rect" || q.key.startsWith("lot"))
@@ -961,12 +1022,13 @@ const UI = {
     const $ = s => document.querySelector(s);
     const sides = UI.read(), metric = $("#metric").checked;
     const roadW = +$("#road").value, lots = +$("#lots").value;
-    const turn = +$("#turn").value;
+    const turn = +$("#turn").value, fan = $("#fan").checked;
     $("#roadv").textContent = fmt.len(roadW, metric) + (metric ? " m" : " ft");
     $("#lotsv").textContent = lots === 1 ? T("oneRect") : T("lots", lots);
     $("#turnv").textContent = turn ? `${turn.toFixed(2)}°` : T("squareOn");
+    document.body.classList.toggle("fanning", fan);
     try {
-      const m = Geom.construct(Geom.closure(sides), roadW, lots, turn);
+      const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan);
       if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
       const svg = $("#plan"), b = svg.getBoundingClientRect();
       svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
@@ -1135,6 +1197,7 @@ const UI = {
     set("l-lots", T("splitLabel"));
     set("l-turn", T("turnLabel"));
     set("bestturn", T("bestBtn"));
+    set("l-fan", T("fanLabel"));
     set("l-metric", T("metres"));
     set("zfit", T("fit"));
     set("l-closure", T("closure"));

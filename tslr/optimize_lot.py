@@ -193,3 +193,112 @@ def _parts(geom, drop=0.5):
     """Leftovers, largest first, ignoring slivers thrown up by float noise."""
     gs = [geom] if geom.geom_type == "Polygon" else list(geom.geoms)
     return sorted((g for g in gs if g.area > drop), key=lambda g: -g.area)
+
+
+def _band(region: Polygon, a, u, t0, t1) -> Polygon:
+    """The slice of `region` between offsets t0 and t1 along the direction u."""
+    L = 900
+    p0 = (a[0] + u[0] * t0, a[1] + u[1] * t0)
+    p1 = (a[0] + u[0] * t1, a[1] + u[1] * t1)
+    return region.intersection(Polygon([
+        (p0[0] - u[1] * L, p0[1] + u[0] * L), (p1[0] - u[1] * L, p1[1] + u[0] * L),
+        (p1[0] + u[1] * L, p1[1] - u[0] * L), (p0[0] + u[1] * L, p0[1] - u[0] * L)]))
+
+
+@dataclass
+class Fan:
+    """Equal-area lots that tile the land the road leaves, with nothing over.
+
+    Dropping the rectangle costs the corner lot its square corners and buys back
+    every square foot of offcut. The lots are four-sided, cut by straight lines
+    across the land, so each one still fronts the road and backs onto the south
+    boundary.
+    """
+    plot: Plot
+    road_w: float
+    n: int = 3
+    square_to: str = "road"          # "road" or "south": what the cuts stand square to
+
+    def __post_init__(self):
+        region, inner = buildable(self.plot, self.road_w)
+        A, B, E, F = region.exterior.coords[:-1]
+        a, b = (F, E) if self.square_to == "road" else (A, B)
+        d = math.dist(a, b)
+        u = ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
+        ts = [(q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1]
+              for q in region.exterior.coords]
+        lo, hi, cuts = min(ts), max(ts), []
+        for i in range(1, self.n):
+            c, e = (cuts[-1] if cuts else lo), hi
+            for _ in range(60):
+                mid = (c + e) / 2
+                under = _band(region, a, u, lo, mid).area
+                c, e = (mid, e) if under < region.area * i / self.n else (c, mid)
+            cuts.append((c + e) / 2)
+        edges = [lo, *cuts, hi]
+        self.region, self.inner = region, inner
+        self.lots = [_band(region, a, u, edges[i], edges[i + 1]) for i in range(self.n)]
+        self.road = self.plot.quad.difference(region)
+        self.audit()
+
+    @property
+    def lot_area(self) -> float:
+        return self.region.area / self.n
+
+    def pieces(self) -> list[Piece]:
+        out = [Piece(f"Lot {i + 1}", g, _fan_why(g), g.area)
+               for i, g in enumerate(self.lots)]
+        out.append(Piece("Road", self.road,
+                         f"{self.road_w:.2f} ft perpendicular, full north boundary",
+                         self.road.area))
+        return out
+
+    def audit(self, tol=TOL):
+        """No offcuts means the lots and the road must be the whole plot."""
+        for p in self.pieces():
+            p.verify(tol)
+        spread = max(g.area for g in self.lots) - min(g.area for g in self.lots)
+        if spread > tol:
+            raise AssertionError(f"lots differ by {spread:.2f} ft2, so they are not equal")
+        total = sum(p.area for p in self.pieces())
+        if abs(total - self.plot.area_ft2) > tol:
+            raise AssertionError(f"parts sum to {total:,.2f} ft2 but the plot is "
+                                 f"{self.plot.area_ft2:,.2f} ft2")
+        return self
+
+    def tally(self) -> dict:
+        return dict(lots=self.region.area, road=self.road.area, waste=0.0,
+                    total=self.region.area + self.road.area, plot=self.plot.area_ft2)
+
+    def corners(self) -> list[list[float]]:
+        """Interior angles of each lot. The corner lot pays for the zero waste."""
+        return [_angles(g) for g in self.lots]
+
+    def __str__(self):
+        worst = min(min(a) for a in self.corners())
+        return (f"{self.n} four-sided lots of {self.lot_area:,.0f} ft2 "
+                f"({self.lot_area / CENT:.2f} cents), no waste, "
+                f"{self.region.area / self.plot.area_ft2:.1%} of the plot, "
+                f"sharpest corner {worst:.0f} deg")
+
+
+def _fan_why(g: Polygon) -> str:
+    """Triangles from the first corner, so the area can be re-added by hand."""
+    q = list(g.exterior.coords[:-1])
+    parts = []
+    for i in range(1, len(q) - 1):
+        base = math.dist(q[0], q[i])
+        parts.append(f"1/2 x {base:.2f} x {2 * Polygon([q[0], q[i], q[i + 1]]).area / base:.2f}")
+    return " + ".join(parts)
+
+
+def _angles(g: Polygon) -> list[float]:
+    q = list(g.exterior.coords[:-1])
+    out = []
+    for i, _ in enumerate(q):
+        p, r = q[i - 1], q[(i + 1) % len(q)]
+        v1 = ((p[0] - q[i][0]), (p[1] - q[i][1]))
+        v2 = ((r[0] - q[i][0]), (r[1] - q[i][1]))
+        cos = (v1[0] * v2[0] + v1[1] * v2[1]) / math.dist(p, q[i]) / math.dist(q[i], r)
+        out.append(math.degrees(math.acos(max(-1.0, min(1.0, cos)))))
+    return out
