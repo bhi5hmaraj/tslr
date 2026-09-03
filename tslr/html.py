@@ -28,6 +28,7 @@ TEMPLATE = """<!doctype html>
       <span id="l-slant"></span> <span id="slant"></span>°</div>
   </header>
   <svg id="plan"></svg>
+  <div id="tip" hidden></div>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button
     ><button id="zin">+</button></div>
 </div>

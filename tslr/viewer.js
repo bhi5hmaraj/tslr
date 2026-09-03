@@ -35,6 +35,7 @@ const I18N = {
     checkFail: w => "self-check FAILED: " + w,
     checkEdited: "sides edited — self-check applies to the recorded plot only",
     working: "How each number is got, from the four recorded sides:",
+    ofPlot: "of the plot",
     fit: "fit",
     diagTaped: "Ours was taped on site.",
     diagGuessed: "Ours is <b>not yet taped</b> — it comes from four corners read " +
@@ -117,6 +118,7 @@ const I18N = {
     checkFail: w => "சுய சரிபார்ப்பு தவறு: " + w,
     checkEdited: "பக்க அளவுகள் மாற்றப்பட்டன — சுய சரிபார்ப்பு பதிவு அளவுகளுக்கு மட்டுமே",
     working: "பதிவான நான்கு பக்க அளவுகளிலிருந்து ஒவ்வொரு எண்ணும் எப்படி வருகிறது:",
+    ofPlot: "நிலத்தில்",
     fit: "பொருத்து",
     diagTaped: "நமது அளவு தரையில் நாடாவால் அளக்கப்பட்டது.",
     diagGuessed: "நமது அளவு <b>இன்னும் நாடாவால் அளக்கப்படவில்லை</b> — செயற்கைக்கோள் " +
@@ -419,7 +421,7 @@ const Render = {
                            [c[0] + u[0] * half, c[1] + u[1] * half]];
       let mid = null;
       outer:
-      for (const dd of half * 2 > len ? [] : [9, 21, 33, -12, -24])
+      for (const dd of half * 2 > len ? [] : [9, 21, 33, 45, -12, -24, -36])
         for (const f of [0.5, 0.34, 0.66, 0.2, 0.8, 0.42, 0.58]) {
           const c = [pa[0] + (pb[0] - pa[0]) * f + n[0] * dd,
                      pa[1] + (pb[1] - pa[1]) * f + n[1] * dd];
@@ -775,6 +777,7 @@ const UI = {
       svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
       svg.innerHTML = Render.plan(m, { w: b.width, h: b.height }, metric);
       $("#sched").innerHTML = Render.schedule(m, metric);
+      UI.m = m;
       $("#slant").textContent = m.slant.toFixed(2);
       $("#area").textContent =
         `${fmt.ft2(m.plot)} ft² = ${fmt.cents(m.plot)} cents = ${fmt.m2(m.plot)} m²`;
@@ -793,9 +796,24 @@ const UI = {
   hover() {
     const set = (k, on) => document.querySelectorAll(`[data-key="${k}"]`)
       .forEach(e => e.classList.toggle("hi", on));
+    const tip = document.querySelector("#tip");
+    const show = (key, x, y) => {
+      const p = (UI.m && UI.m.pieces || []).find(q => q.key === key);
+      if (!p) return;
+      const metric = document.querySelector("#metric").checked;
+      tip.innerHTML = `<b>${p.name}</b><i>${p.why}</i>` +
+        `<span>${fmt.ft2(p.area)} ft² &nbsp;·&nbsp; ${fmt.cents(p.area)} ${T("thCents")}` +
+        ` &nbsp;·&nbsp; ${fmt.m2(p.area)} m²</span>` +
+        `<span>${(p.area / UI.m.plot * 100).toFixed(1)}% ${T("ofPlot")}</span>`;
+      tip.hidden = false;
+      const b = tip.getBoundingClientRect();
+      tip.style.left = Math.min(x + 14, innerWidth - b.width - 8) + "px";
+      tip.style.top = Math.max(8, y - b.height - 12) + "px";
+    };
     document.querySelectorAll("[data-key]").forEach(e => {
       e.onmouseenter = () => set(e.dataset.key, true);
-      e.onmouseleave = () => set(e.dataset.key, false);
+      e.onmouseleave = () => { set(e.dataset.key, false); tip.hidden = true; };
+      e.onmousemove = ev => show(e.dataset.key, ev.clientX, ev.clientY);
     });
   },
 

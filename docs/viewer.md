@@ -7,8 +7,9 @@ deployed URL; there is no server, no build step and no dependency.
 
 Change the road width, the lot count or any boundary figure and everything
 re-solves immediately: the drawing, every side length, each piece's area in
-ft² / cents / m², and the tally back to the plot. Hovering a piece highlights it
-in both the drawing and the schedule.
+ft² / cents / m², and the tally back to the plot. Hovering a piece highlights it in both the drawing and the
+schedule, and shows its arithmetic with the area in ft², cents, m² and as a
+share of the plot — from either the drawing or the table row.
 
 The plot boundary is survey data, not a design variable, so only the
 construction is adjustable — but the sides and diagonal are editable inputs,
