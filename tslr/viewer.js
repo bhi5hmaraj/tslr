@@ -29,6 +29,9 @@ const I18N = {
                  "back to 0° to walk through it.",
     fanLabel: "Four-sided lots — no waste at all",
     eqLabel: "Give every lot the same buildable rectangle",
+    entrance: "opens onto the road over",
+    noFront: "no road frontage — reached across the strip in front, which is " +
+             "therefore common, not private",
     buildable: "buildable",
     eqNote: (a, c) => `Cuts set so the largest rectangle inside every lot is the ` +
       `same: ${a} ft² (${c} cents) each. The corner lot gets more land to make ` +
@@ -131,6 +134,9 @@ const I18N = {
                  "0° ஆக்கினால் அதைப் பார்க்கலாம்.",
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
+    entrance: "சாலைக்கான நுழைவு அகலம்",
+    noFront: "சாலை முகப்பு இல்லை — முன்பகுதி வழியாகச் செல்ல வேண்டும், " +
+             "எனவே அது பொது இடம்",
     buildable: "கட்டிடத்திற்கு",
     eqNote: (a, c) => `ஒவ்வொரு மனையிலும் பொருந்தும் மிகப்பெரிய செவ்வகம் ஒரே ` +
       `அளவாக இருக்கும்படி வெட்டப்பட்டது: தலா ${a} ச.அடி (${c} சென்ட்). மூலை மனைக்கு ` +
@@ -490,6 +496,22 @@ const Geom = {
     });
   },
 
+  // How wide a piece's opening onto the road is: the length of its boundary
+  // lying on the road's inner edge. A piece with none is reached only by
+  // crossing something else, so that something else cannot be private land.
+  entrance(poly, F, E) {
+    const [u, d] = Geom.unit(F, E);
+    let tot = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [a, b] = [poly[i], poly[(i + 1) % poly.length]];
+      const off = q => Math.abs(-u[1] * (q[0] - F[0]) + u[0] * (q[1] - F[1]));
+      if (Math.max(off(a), off(b)) > 0.02) continue;
+      const t = [a, b].map(q => (q[0] - F[0]) * u[0] + (q[1] - F[1]) * u[1]).sort((x, y) => x - y);
+      tot += Math.max(0, Math.min(t[1], d) - Math.max(t[0], 0));
+    }
+    return tot;
+  },
+
   corners(poly) {
     return poly.map((q, i) => {
       const p = poly[(i - 1 + poly.length) % poly.length], r = poly[(i + 1) % poly.length];
@@ -598,6 +620,7 @@ const Geom = {
     if (hitPt && !reg.has(vkey(hitPt))) reg.set(vkey(hitPt), spare.shift() || "?");
     const nameOf = q => reg.get(vkey(q)) || "";
     for (const p of pieces) {
+      p.entrance = p.key === "road" ? 0 : Geom.entrance(p.poly, F, E);
       p.name = p.nk === "lot" ? T("lot", p.ni)
              : p.nk === "offcut" ? T("offcut", p.ni) : T(p.nk);
       p.sides = p.poly.map((q, i) => Geom.dist(q, p.poly[(i + 1) % p.poly.length]));
@@ -882,7 +905,10 @@ const Render = {
             border-color:${Render.fill(p.key)[1]}"></span>${p.name}</td>
         <td class="why">${p.spans.map((sp, i) => `${sp} ${L(p.sides[i])}`).join(", ")}
             <br><i>${p.why}</i>${p.build ? `<br><b class="bld">${T("buildable")}
-            ${p.buildWhy} = ${fmt.ft2(p.buildArea)} ft² (${fmt.cents(p.buildArea)} ${T("thCents")})</b>` : ""}</td>
+            ${p.buildWhy} = ${fmt.ft2(p.buildArea)} ft² (${fmt.cents(p.buildArea)} ${T("thCents")})</b>` : ""}
+            ${p.key === "road" ? "" : p.entrance > 0.05
+              ? `<br><span class="ent">${T("entrance")} ${L(p.entrance)}</span>`
+              : `<br><span class="ent bad">${T("noFront")}</span>`}</td>
         <td class="n">${val(p.area)}</td>
         <td class="n">${fmt.cents(p.area)}</td>
         <td class="n">${(p.area / m.plot * 100).toFixed(1)}%</td></tr>`).join("");

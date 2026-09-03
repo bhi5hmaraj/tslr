@@ -186,6 +186,47 @@ def test_equal_buildable_beats_equal_land_for_the_family_that_loses():
     assert _reach(build, region, F, u, min(ts), max(ts), build.rect_area * 1.02) is None
 
 
+def test_the_squared_rectangle_has_no_road_frontage_of_its_own():
+    """The strip the road opens onto is crossed by everyone, so it cannot be
+    private land. Squaring the block to the south boundary creates one."""
+    import math
+    from tslr.geometry import Massing
+    from tslr.optimize_lot import Fan, buildable
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    m = Massing(site, 20.0)
+    _, inner = buildable(site, 20.0)
+    F, E = m.F, m.E
+    d = math.dist(F, E)
+    u = ((E[0] - F[0]) / d, (E[1] - F[1]) / d)
+
+    def entrance(poly):
+        q = list(poly.exterior.coords[:-1])
+        tot = 0.0
+        for i, a in enumerate(q):
+            b = q[(i + 1) % len(q)]
+            if max(abs(-u[1] * (z[0] - F[0]) + u[0] * (z[1] - F[1]))
+                   for z in (a, b)) > 0.02:
+                continue
+            t = sorted((z[0] - F[0]) * u[0] + (z[1] - F[1]) * u[1] for z in (a, b))
+            tot += max(0.0, min(t[1], d) - max(t[0], 0.0))
+        return tot
+
+    assert entrance(m.rect) == 0.0, "the rectangle would front the road directly"
+    t1 = next(p for p in m.pieces if p.name.startswith("T1"))
+    t3 = next(p for p in m.pieces if p.name.startswith("T3"))
+    assert entrance(t1.poly) > 190, "T1 is the strip the road opens onto"
+    assert 30.5 < entrance(t3.poly) < 31.5, entrance(t3.poly)   # the east triangle
+    # so the common land is the road plus T1, half again what the road alone says
+    common = m.road.area + t1.area
+    assert common / site.area_ft2 > 0.36 > m.road.area / site.area_ft2
+
+    # four-sided lots have no such strip: each one reaches the road itself
+    f = Fan(site, 20.0, 3, equalise="buildable")
+    ents = [entrance(g) for g in f.lots]
+    assert min(ents) > 50, ents
+    assert abs(sum(ents) - d) < 0.01, "the lots share the whole road edge"
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

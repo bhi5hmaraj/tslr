@@ -91,6 +91,8 @@ body.fanning #turn, body.fanning #bestturn { pointer-events: none; }
 body.fanning .sub-opt { opacity: 1; }
 body:not(.fanning) .sub-opt input { pointer-events: none; }
 .bld { color: #7b1fa2; font-weight: 600; }
+.ent { color: #00695c; }
+.ent.bad { color: #c00; }
 /* the rectangle a house can actually be set out on, inside its lot */
 .build { fill: none; stroke: #7b1fa2; stroke-width: 1.4; stroke-dasharray: 6 4; }
 body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2px; padding: 2px 9px; font: inherit;
