@@ -69,8 +69,9 @@ lot is `w × d`, a road bay is `(h₁ + h₂)/2 × w`, a corner offcut is
 
 Only six numbers come from outside: four sides, the diagonal, and the road
 width, which is a design choice. Everything else is derived, and the viewer's
-explain mode shows the arithmetic for each — corner angles from the cosine rule
-on the two triangles the diagonal makes, the slant from `180° − A − D`, the
+explain mode shows the arithmetic for each — corner angles from the law of
+cosines on the two triangles the diagonal makes (`AC² = AB² + BC² − 2·AB·BC·cos B`,
+rearranged for the angle), the slant from `180° − A − D`, the
 perpendicular offsets from `road ÷ sin` of the corner they cut, the depths from
 `hW − PB · tan slant`, and lengths like `AG = GF ÷ tan A`.
 

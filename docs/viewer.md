@@ -21,9 +21,12 @@ and the label placer sees the room a zoom creates — labels that had to sit out
 the margin move back onto their own segments as you zoom in.
 
 A dotted blue line always shows where a **20 ft** road's inner edge would run,
-whatever the road is currently set to, with the point where it crosses the
-rectangle's top edge marked: east of that crossing a 20 ft road would not fit.
-At exactly 20 ft the line lies on the road's inner edge and there is no crossing.
+whatever the road is currently set to. Where it crosses the rectangle's top edge
+it gets a letter like any other point, so the split reads in the usual
+convention — `JK = 130.47`, `KH = 65.70`, against `HJ = 196.16`. East of K a
+20 ft road would not fit. At 20 ft or wider there is no crossing.
+
+On a phone the panel stacks under the drawing, one finger pans, two pinch.
 
 ## Explain mode
 

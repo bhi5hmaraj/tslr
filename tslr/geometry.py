@@ -628,14 +628,14 @@ class Massing:
                   (math.dist(D, C) + math.dist(self.F, self.E)) / 2 * self.road_w),
             Piece("Rectangle", self.rect, f"{self.width:.2f} × {self.depth:.2f}",
                   self.width * self.depth),
-            Piece("T1 under the road", self.t1,
+            Piece("T1", self.t1,
                   f"½ × {self.width:.2f} × {self.inner(self.x_west) - self.depth:.2f}",
                   self.width * (self.inner(self.x_west) - self.depth) / 2),
-            Piece("T2 west corner", self.west,
+            Piece("T2 west", self.west,
                   f"½ × {math.dist(A, self.at(self.x_west, 0)):.2f} × "
                   f"{self.inner(self.x_west):.2f}",
                   math.dist(A, self.at(self.x_west, 0)) * self.inner(self.x_west) / 2),
-            Piece("T3 east corner", self.east,
+            Piece("T3 east", self.east,
                   f"½ × {self.depth:.2f} × {math.dist(B, self.at(self.base, 0)) + abs(self.E[0] - B[0]):.2f}",
                   self.east.area)]
 

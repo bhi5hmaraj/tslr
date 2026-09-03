@@ -18,7 +18,8 @@ from .geometry import CENT, FT2, Massing, Plot
 
 HERE = Path(__file__).parent
 TEMPLATE = """<!doctype html>
-<meta charset="utf-8"><title>{survey} — massing</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{survey} — massing</title>
 <style>{css}</style>
 <div id="left">
   <header>
