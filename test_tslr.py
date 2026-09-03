@@ -160,6 +160,32 @@ def test_a_fan_that_is_not_equal_is_refused():
         f.audit()
 
 
+def test_equal_buildable_beats_equal_land_for_the_family_that_loses():
+    """Three families, so what matters is what the worst-off one gets. Equal land
+    hands the corner family the same area but a wedge it cannot build on."""
+    from tslr.optimize_lot import Fan
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    land = Fan(site, 20.0, 3, equalise="land")
+    build = Fan(site, 20.0, 3, equalise="buildable")
+    assert build.rect_area > land.rect_area, (build.rect_area, land.rect_area)
+    # neither wastes anything, so the whole difference is in how it is shared
+    for f in (land, build):
+        assert f.tally()["waste"] == 0.0
+        assert abs(f.tally()["lots"] - sum(g.area for g in f.lots)) < 0.01
+    # equalising the buildable rectangle pays the corner lot in land
+    areas = [g.area for g in build.lots]
+    assert max(areas) == areas[-1] and max(areas) > min(areas) * 1.1, areas
+    # and 4,268 ft2 is the most all three can be promised: asking for more fails
+    from tslr.optimize_lot import _reach, buildable as land_left
+    region, _ = land_left(site, 20.0)
+    import math
+    A, B, E, F = region.exterior.coords[:-1]
+    d = math.dist(F, E)
+    u = ((E[0] - F[0]) / d, (E[1] - F[1]) / d)
+    ts = [(q[0] - F[0]) * u[0] + (q[1] - F[1]) * u[1] for q in region.exterior.coords]
+    assert _reach(build, region, F, u, min(ts), max(ts), build.rect_area * 1.02) is None
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

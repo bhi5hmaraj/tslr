@@ -53,6 +53,8 @@ TEMPLATE = """<!doctype html>
   <div class="row"><input id="turn" type="range" min="-45" max="45" step="0.05" value="0">
     <span id="turnv"></span><button id="bestturn"></button></div>
   <label class="row"><input id="fan" type="checkbox"> <span id="l-fan"></span></label>
+  <label class="row sub-opt"><input id="eqbuild" type="checkbox">
+    <span id="l-eqbuild"></span></label>
   <label class="row"><input id="metric" type="checkbox"> <span id="l-metric"></span></label>
   <button id="explain">Explain this construction</button>
   <div id="stepper">

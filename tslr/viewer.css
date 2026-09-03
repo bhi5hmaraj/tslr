@@ -86,6 +86,13 @@ body.explaining label[for=turn] { opacity: .45; }
 /* four-sided lots fill the land whatever the turn, so the turn knob does nothing */
 body.fanning label[for=turn], body.fanning label[for=turn] + .row { opacity: .4; }
 body.fanning #turn, body.fanning #bestturn { pointer-events: none; }
+/* equalising the buildable rectangle only means anything for four-sided lots */
+.sub-opt { margin-left: 18px; opacity: .4; }
+body.fanning .sub-opt { opacity: 1; }
+body:not(.fanning) .sub-opt input { pointer-events: none; }
+.bld { color: #7b1fa2; font-weight: 600; }
+/* the rectangle a house can actually be set out on, inside its lot */
+.build { fill: none; stroke: #7b1fa2; stroke-width: 1.4; stroke-dasharray: 6 4; }
 body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2px; padding: 2px 9px; font: inherit;
         font-size: 12px; border: 1px solid #bbb; border-radius: 4px;
         background: #fff; cursor: pointer; }
