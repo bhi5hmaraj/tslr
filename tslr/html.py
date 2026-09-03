@@ -27,6 +27,7 @@ TEMPLATE = """<!doctype html>
     <div class="meta"><span id="l-closure"></span> <span id="area"></span> ·
       <span id="l-slant"></span> <span id="slant"></span>°</div>
   </header>
+  <button id="panel" title="hide the panel"></button>
   <svg id="plan"></svg>
   <div id="tip" hidden></div>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button

@@ -88,8 +88,12 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 .arc { fill: none; stroke: #7b1fa2; stroke-width: 1.6; }
 .angle { font-size: 11px; font-weight: 700; fill: #7b1fa2;
          paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
-.leader { stroke: #666; stroke-width: 0.9; fill: none; }
-.leader.hi { stroke: #000; stroke-width: 1.5; }
+.leader { stroke: #aaa; stroke-width: 0.8; fill: none; }
+.leader.hi { stroke: #c62828; stroke-width: 1.6; }
+/* a wide invisible line over each segment, so hovering the segment lights up
+   its length wherever the label ended up */
+.hit { stroke: transparent; stroke-width: 12; fill: none; }
+.side.hi { fill: #c62828; }
 .a-end { text-anchor: end; }
 .a-start { text-anchor: start; }
 .w20 { stroke: #0033aa; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
@@ -132,3 +136,14 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 #tip i { display: block; font-style: normal; color: #9fd7e4;
          font-family: ui-monospace, Menlo, monospace; font-size: 11px; margin: 2px 0 3px; }
 #tip span { display: block; color: #d6d9dc; }
+
+#panel { position: absolute; top: 10px; right: 10px; z-index: 15;
+         width: 26px; height: 26px; padding: 0; font: inherit; font-size: 15px;
+         line-height: 1; border: 1px solid #ccc; border-radius: 5px;
+         background: rgba(255,255,255,.92); color: #555; cursor: pointer; }
+#panel:hover { background: #eee; color: #111; }
+body.no-panel #right { display: none; }
+@media (max-width: 900px) {
+  #panel { width: 34px; height: 34px; font-size: 17px; }
+  body.no-panel #plan { height: 88vh; }
+}

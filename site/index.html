@@ -91,8 +91,12 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 .arc { fill: none; stroke: #7b1fa2; stroke-width: 1.6; }
 .angle { font-size: 11px; font-weight: 700; fill: #7b1fa2;
          paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
-.leader { stroke: #666; stroke-width: 0.9; fill: none; }
-.leader.hi { stroke: #000; stroke-width: 1.5; }
+.leader { stroke: #aaa; stroke-width: 0.8; fill: none; }
+.leader.hi { stroke: #c62828; stroke-width: 1.6; }
+/* a wide invisible line over each segment, so hovering the segment lights up
+   its length wherever the label ended up */
+.hit { stroke: transparent; stroke-width: 12; fill: none; }
+.side.hi { fill: #c62828; }
 .a-end { text-anchor: end; }
 .a-start { text-anchor: start; }
 .w20 { stroke: #0033aa; stroke-width: 1.6; stroke-dasharray: 5 4; fill: none; }
@@ -135,6 +139,17 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
 #tip i { display: block; font-style: normal; color: #9fd7e4;
          font-family: ui-monospace, Menlo, monospace; font-size: 11px; margin: 2px 0 3px; }
 #tip span { display: block; color: #d6d9dc; }
+
+#panel { position: absolute; top: 10px; right: 10px; z-index: 15;
+         width: 26px; height: 26px; padding: 0; font: inherit; font-size: 15px;
+         line-height: 1; border: 1px solid #ccc; border-radius: 5px;
+         background: rgba(255,255,255,.92); color: #555; cursor: pointer; }
+#panel:hover { background: #eee; color: #111; }
+body.no-panel #right { display: none; }
+@media (max-width: 900px) {
+  #panel { width: 34px; height: 34px; font-size: 17px; }
+  body.no-panel #plan { height: 88vh; }
+}
 </style>
 <div id="left">
   <header>
@@ -142,6 +157,7 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
     <div class="meta"><span id="l-closure"></span> <span id="area"></span> ·
       <span id="l-slant"></span> <span id="slant"></span>°</div>
   </header>
+  <button id="panel" title="hide the panel"></button>
   <svg id="plan"></svg>
   <div id="tip" hidden></div>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button
@@ -396,6 +412,24 @@ const Geom = {
     return Geom.add(p1, Geom.mul(d1, t));
   },
 
+  // distance from p to the segment a-b
+  ptSeg(p, a, b) {
+    const d = Geom.sub(b, a), L2 = d[0] * d[0] + d[1] * d[1];
+    if (L2 < 1e-12) return Geom.dist(p, a);
+    const t = Math.max(0, Math.min(1, Geom.dot(Geom.sub(p, a), d) / L2));
+    return Geom.dist(p, [a[0] + d[0] * t, a[1] + d[1] * t]);
+  },
+
+  // distance between two segments, 0 if they cross
+  segDist([a, b], [c, d]) {
+    const cross = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const d1 = cross(a, b, c), d2 = cross(a, b, d);
+    const d3 = cross(c, d, a), d4 = cross(c, d, b);
+    if (d1 * d2 < 0 && d3 * d4 < 0) return 0;
+    return Math.min(Geom.ptSeg(c, a, b), Geom.ptSeg(d, a, b),
+                    Geom.ptSeg(a, c, d), Geom.ptSeg(b, c, d));
+  },
+
   shoelace(pts) {
     let s = 0;
     for (let i = 0; i < pts.length; i++) {
@@ -582,48 +616,59 @@ const Render = {
     const placed = seed.slice(), gutter = [];
     out.push(`<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4"
       markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M0,1 L7,4 L0,7 z" fill="#666"/></marker></defs>`);
+      <path d="M0,1 L7,4 L0,7 z" fill="#888"/></marker></defs>`);
+    let n0 = 0;
     for (const { a, b, label } of items) {
+      const id = `s${n0++}`;
       const [pa, pb] = [X(a), X(b)];
       const len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
       if (len < 14) continue;                         // shorter than its own badge
+      const cm = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
       let n = [-(pb[1] - pa[1]) / len, (pb[0] - pa[0]) / len];
       if (n[0] * (ctr[0] - pa[0]) + n[1] * (ctr[1] - pa[1]) < 0) n = [-n[0], -n[1]];
       let ang = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI;
       if (ang > 90 || ang < -90) ang += 180;
       const half = label.length * 3.0;
       const u = [(pb[0] - pa[0]) / len, (pb[1] - pa[1]) / len];
-      const spread = c => [[c[0] - u[0] * half, c[1] - u[1] * half], c,
+      // a label is a segment along its own baseline, not a point
+      const spread = c => [[c[0] - u[0] * half, c[1] - u[1] * half],
                            [c[0] + u[0] * half, c[1] + u[1] * half]];
+      // A leader ties a label back to its segment, so it is free to move much
+      // further than it could when its position alone had to identify it.
       let mid = null;
       outer:
-      for (const dd of half * 2 > len ? [] : [9, 21, 33, 45, -12, -24, -36])
-        for (const f of [0.5, 0.34, 0.66, 0.2, 0.8, 0.42, 0.58]) {
+      for (const dd of half * 2 > len ? [] : [9, 16, 24, 34, 46, 60, -12, -22, -34, -48])
+        for (const f of [0.5, 0.34, 0.66, 0.2, 0.8, 0.42, 0.58, 0.1, 0.9]) {
           const c = [pa[0] + (pb[0] - pa[0]) * f + n[0] * dd,
                      pa[1] + (pb[1] - pa[1]) * f + n[1] * dd];
-          const pts = spread(c);
-          if (!placed.some(q => q.some(x => pts.some(y =>
-                Math.hypot(x[0] - y[0], x[1] - y[1]) < 13)))) { mid = c; break outer; }
+          const box = spread(c);
+          if (!placed.some(q => Geom.segDist(box, q) < 7 + (q[2] ?? 7))) {
+            mid = c; break outer;
+          }
         }
+      const lead = (from, to) =>
+        out.push(`<line x1="${from[0]}" y1="${from[1]}" x2="${to[0]}" y2="${to[1]}"
+                   class="leader" data-seg="${id}" marker-end="url(#ar)"/>`);
+      out.push(`<line x1="${pa[0]}" y1="${pa[1]}" x2="${pb[0]}" y2="${pb[1]}"
+                 class="hit" data-seg="${id}"/>`);
       if (mid) {
-        placed.push(spread(mid));
-        out.push(`<text x="${mid[0]}" y="${mid[1] + 4}" class="side"
+        placed.push([...spread(mid), 7]);
+        if (Math.hypot(mid[0] - cm[0], mid[1] - cm[1]) > 17) lead(mid, cm);
+        out.push(`<text x="${mid[0]}" y="${mid[1] + 4}" class="side" data-seg="${id}"
                    transform="rotate(${ang} ${mid[0]} ${mid[1]})">${label}</text>`);
         continue;
       }
-      const cm = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
       const left = cm[0] < ctr[0];
       const gx = left ? Math.max(66, px0 - 22) : Math.min(bw - 66, px1 + 22);
       let gy = cm[1];
       while (gutter.some(g => g[0] === left && Math.abs(g[1] - gy) < 15)) gy += 15;
       gutter.push([left, gy]);
-      placed.push([[gx, gy]]);
-      out.push(`<line x1="${gx + (left ? 4 : -4)}" y1="${gy - 3}" x2="${cm[0]}"
-                 y2="${cm[1]}" class="leader" marker-end="url(#ar)"/>`);
+      placed.push([[gx - label.length * 3, gy], [gx + label.length * 3, gy], 7]);
+      lead([gx + (left ? 4 : -4), gy - 3], cm);
       // a class, not the text-anchor attribute: the stylesheet's `text` rule
       // would otherwise win and centre the label back over the drawing
       out.push(`<text x="${gx}" y="${gy}" class="side ${left ? "a-end" : "a-start"}"
-                 >${label}</text>`);
+                 data-seg="${id}">${label}</text>`);
     }
     return placed;
   },
@@ -656,26 +701,31 @@ const Render = {
       const c = p.poly.reduce((a, q) => [a[0] + q[0] / p.poly.length, a[1] + q[1] / p.poly.length], [0, 0]);
       const [cx, cy] = X(c);
       const big = Geom.shoelace(p.poly) * k * k > 30000;
-      const w2 = (big ? p.name.length * 5.4 : 12);
-      for (const dy of [-6, 0])
-        fixed.push([[cx - w2, cy + dy], [cx, cy + dy], [cx + w2, cy + dy]]);
       // Wide pieces carry their name and arithmetic. A sliver carries its tag
       // alone, turned to run along its own longest edge so it stays inside the
       // shape instead of lying across the drawing.
-      if (big) {
-        out.push(`<text x="${cx}" y="${cy}" class="lab big" data-key="${p.key}">${p.name}</text>`);
-      } else {
+      let ang = 0, w2 = p.name.length * 5.4;
+      if (!big) {
+        w2 = p.key.length * 4.4;        // the tag is the key, not the full name
         let best = null;
         for (let i = 0; i < p.poly.length; i++) {
           const a = X(p.poly[i]), b = X(p.poly[(i + 1) % p.poly.length]);
           const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
           if (!best || d > best[0]) best = [d, a, b];
         }
-        let ang = Math.atan2(best[2][1] - best[1][1], best[2][0] - best[1][0]) * 180 / Math.PI;
+        ang = Math.atan2(best[2][1] - best[1][1], best[2][0] - best[1][0]) * 180 / Math.PI;
         if (ang > 90 || ang < -90) ang += 180;
-        out.push(`<text x="${cx}" y="${cy}" class="lab tagonly" data-key="${p.key}"
-                   transform="rotate(${ang} ${cx} ${cy})">${p.key.toUpperCase()}</text>`);
       }
+      // Seed along the caption's own baseline: a rotated tag does not occupy
+      // the horizontal bar a rotation-blind seed would reserve for it. The rows
+      // straddle the glyphs, which rise above the baseline they are drawn on.
+      const ca = ang * Math.PI / 180, cu = [Math.cos(ca), Math.sin(ca)];
+      fixed.push([[cx - cu[0] * w2, cy - 7 - cu[1] * w2],
+                  [cx + cu[0] * w2, cy - 7 + cu[1] * w2], big ? 11 : 9]);
+      out.push(big
+        ? `<text x="${cx}" y="${cy}" class="lab big" data-key="${p.key}">${p.name}</text>`
+        : `<text x="${cx}" y="${cy}" class="lab tagonly" data-key="${p.key}"
+             transform="rotate(${ang} ${cx} ${cy})">${p.key.toUpperCase()}</text>`);
     }
     // Each piece's own side lengths, on the edges. Pieces share edges -- the
     // rectangle's top is also T1's base -- so each edge is labelled once,
@@ -706,7 +756,7 @@ const Render = {
       items.push({ a: m.J, b: m.w20.hit, label: spanTxt(m.J, m.w20.hit) },
                  { a: m.w20.hit, b: m.H, label: spanTxt(m.w20.hit, m.H) });
     Render.placeLabels(out, items, X, ctr, px0, px1,
-      [...fixed, ...[...verts.values()].map(v => [X(v)])], box.w);
+      [...fixed, ...[...verts.values()].map(v => [X(v), X(v), 10])], box.w);
 
     // the four recorded boundaries, outside the plot
     const single = ([a2, b2]) => [...seen.values()].some(([u, v]) =>
@@ -892,7 +942,7 @@ const Explain = {
       const bis = [u1[0] + u2[0], u1[1] + u2[1]];
       const bl = Math.hypot(...bis) || 1;
       const lx = at[0] + bis[0] / bl * (r + 16), ly = at[1] + bis[1] / bl * (r + 16);
-      seedAngles.push([[lx - 26, ly], [lx, ly], [lx + 26, ly]]);
+      seedAngles.push([[lx - 26, ly - 5], [lx + 26, ly - 5], 9]);
       out.push(`<text x="${lx}" y="${ly + 4}" class="angle">${"ABCD"[i]}
                  ${m.angles[i].toFixed(2)}°</text>`);
     }
@@ -902,7 +952,7 @@ const Explain = {
       step.segs.map(([a, b]) => ({ a, b,
         label: `${m.nameOf(a)}${m.nameOf(b)} = ${L(Geom.dist(a, b))}` })),
       X, ctr, Math.min(...bx.map(q => q[0])), Math.max(...bx.map(q => q[0])),
-      [...seedAngles, ...step.marks.map(v => [X(v)])], box.w);
+      [...seedAngles, ...step.marks.map(v => [X(v), X(v), 10])], box.w);
 
     for (const v of step.marks) {
       const nm = m.nameOf(v);
@@ -972,6 +1022,12 @@ const UI = {
   hover() {
     const set = (k, on) => document.querySelectorAll(`[data-key="${k}"]`)
       .forEach(e => e.classList.toggle("hi", on));
+    const setSeg = (id, on) => document.querySelectorAll(`[data-seg="${id}"]`)
+      .forEach(e => e.classList.toggle("hi", on));
+    document.querySelectorAll("[data-seg]").forEach(e => {
+      e.onmouseenter = () => setSeg(e.dataset.seg, true);
+      e.onmouseleave = () => setSeg(e.dataset.seg, false);
+    });
     const tip = document.querySelector("#tip");
     const show = (key, x, y) => {
       const p = (UI.m && UI.m.pieces || []).find(q => q.key === key);
@@ -1056,6 +1112,13 @@ const UI = {
     document.querySelector("#zfit").onclick = () => UI.fit();
   },
 
+  setPanel(hidden) {
+    document.body.classList.toggle("no-panel", hidden);
+    document.querySelector("#panel").textContent = hidden ? "‹" : "›";
+    try { localStorage.setItem("tslr-panel", hidden ? "0" : "1"); } catch (e) { /* private */ }
+    UI.draw();                      // the fit is measured against the svg's box
+  },
+
   explain() {
     const $ = s2 => document.querySelector(s2);
     const sides = UI.read(), metric = $("#metric").checked;
@@ -1109,6 +1172,12 @@ const UI = {
   },
 
   init() {
+    document.querySelector("#panel").onclick = () =>
+      UI.setPanel(!document.body.classList.contains("no-panel"));
+    addEventListener("keydown", e => {
+      if (e.key === "p" && !/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName))
+        UI.setPanel(!document.body.classList.contains("no-panel"));
+    });
     document.querySelector("#lang").onclick = () => {
       LANG = LANG === "en" ? "ta" : "en";
       try { localStorage.setItem("tslr-lang", LANG); } catch (e) { /* private mode */ }
@@ -1132,6 +1201,10 @@ const UI = {
     document.querySelectorAll("input").forEach(e => e.addEventListener("input", UI.draw));
     addEventListener("resize", UI.draw);
     UI.wirePanZoom();
+    let hide = false;
+    try { hide = localStorage.getItem("tslr-panel") === "0"; } catch (e) { /* private */ }
+    document.body.classList.toggle("no-panel", hide);
+    document.querySelector("#panel").textContent = hide ? "‹" : "›";
     UI.applyLang();
   },
 };
