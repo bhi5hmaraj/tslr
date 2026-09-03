@@ -1,0 +1,34 @@
+{
+  "survey": "TS 11/14/18",
+  "block": "0011",
+  "ward": "Ward-16 Thallakulam",
+  "taluk": "Madurai North",
+  "source": "TSLR/FMB extract 14:18-orig.pdf, issued 2026-07-12, approved 2026-07-08",
+
+  "sides_m": {"north": 72.60, "east": 25.00, "south": 63.20, "west": 30.00},
+  "sides_note": "figures written INSIDE the boundary on the FMB. Figures above the north line (3, 7.8, 15.2, 21.4, 38.0, 22.2, 11.0, 11.2) belong to the neighbouring plots, not to 11/14/18.",
+  "registered_m2": 1875.0,
+  "neighbours": {"north": ["11/14/21", "11/14/22", "11/14/38", "11/14/36", "11/14/35", "11/14/34"],
+                 "east": "11/15 — a water channel, NOT a road: confirmed on satellite imagery",
+                 "south": "11/14/6", "west": "11/14/5"},
+  "entrance": "north-west corner D, the 3.00 m (9.84 ft) stretch of the north boundary",
+
+  "diagonal_m": {
+    "measured": null,
+    "measured_ends": "AC",
+    "note": "NOT YET TAPED. Four sides do not fix a quadrilateral; one diagonal does. Set `measured` and the closure stops being an assumption. Sensitivity is ~14 m2 of area per metre of AC.",
+    "predicted_from_pins": 79.00,
+    "predicted_band": [77.80, 80.17],
+    "predicted_bd": 66.33
+  },
+
+  "pins_wgs84": {
+    "A": [9.953269744086384, 78.158491063731],
+    "B": [9.953243409058897, 78.15905176051328],
+    "C": [9.953420578188025, 78.1591776619198],
+    "D": [9.953529122902225, 78.15853275505997]
+  },
+  "pins_note": "corner pins read off Google Maps satellite view, 2026-09-03. A=SW, B=SE, C=NE, D=NW. Good to about 0.8 m rms against the tape-exact shape; the west and east compound walls are clearly visible and the fit sits on them. Position/rotation only — never let these set the scale.",
+  "map_url": "https://www.google.com/maps/@9.9533658,78.1588135,154m/data=!3m1!1e3",
+  "epsg": 32644
+}

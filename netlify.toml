@@ -1,0 +1,14 @@
+# The viewer is one self-contained HTML file with no dependencies, so there is
+# nothing to build here: Netlify serves site/ as it stands. The page is built
+# locally by `python -m tslr --html`, which also bakes in the self-check vectors
+# the page asserts against on load — a build that quietly failed here would
+# publish a page that disagrees with the drawings.
+[build]
+  publish = "site"
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"

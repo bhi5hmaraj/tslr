@@ -1,0 +1,58 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::32644"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "survey": "TS 11/14/18",
+    "north_m": 72.6,
+    "east_m": 25.0,
+    "south_m": 63.2,
+    "west_m": 30.0,
+    "diagonal_ac_m": 79.0,
+    "diagonal_bd_m": 66.337,
+    "registered_m2": 1875.0,
+    "cyclic": false,
+    "fit_rms_m": 0.841,
+    "bearing_ab": 93.39,
+    "closure": "Heron(63.20, 25.00, 79.00) + Heron(79.00, 72.60, 30.00) = 678.0 + 1088.9 = 1766.9 m\u00b2",
+    "area_ft2": 19018.6,
+    "area_m2": 1766.9,
+    "cents": 43.661
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       188417.04527681845,
+       1101581.754757284
+      ],
+      [
+       188480.13471274116,
+       1101578.0180374717
+      ],
+      [
+       188494.21126885441,
+       1101598.6783997142
+      ],
+      [
+       188422.7021525677,
+       1101611.2165928811
+      ],
+      [
+       188417.04527681845,
+       1101581.754757284
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

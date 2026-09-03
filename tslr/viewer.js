@@ -1,0 +1,846 @@
+// TS 11/14/18 massing viewer. Three parts, in dependency order:
+//   Geom    the construction, pure functions, no DOM
+//   Render  geometry -> SVG
+//   UI      controls and wiring
+// The plot corners and the test vectors are substituted in by tslr/html.py.
+
+const SITE = __SITE__;
+
+
+// ---------------------------------------------------------------- I18N
+// Every string the reader sees, in both languages. Tamil is the working
+// language on site in Madurai; English is what the FMB extract is written in.
+const I18N = {
+  en: {
+    lang: "தமிழ்", boundary: "Boundary, metres — edit to try other figures",
+    north: "north", east: "east", south: "south", west: "west",
+    diagonal: "diagonal A–C",
+    roadLabel: "Road width, perpendicular to the north boundary",
+    splitLabel: "Split the rectangle", oneRect: "one rectangle",
+    lots: n => `${n} equal lots`, metres: "metres",
+    explainBtn: "Explain this construction", backBtn: "← back to the plan",
+    closure: "closure", slants: "north boundary slants",
+    footer: "Road runs the full north boundary D→C; its inner edge meets the west " +
+            "boundary at F and the east at E. The rectangle stands square to the " +
+            "south boundary and rises until it meets that edge.",
+    registered: "Registered extent", cannot: "Cannot draw these figures",
+    noRoom: "no room for that road",
+    thPiece: "piece", thSides: "sides, and area = base × height",
+    thCents: "cents", tally: "TALLY", partsSum: "parts sum to the plot",
+    partsDont: "PARTS DO NOT SUM",
+    Road: "Road", Rectangle: "Rectangle", lot: n => `Lot ${n}`,
+    "T1 under the road": "T1 under the road", "T2 west corner": "T2 west corner",
+    "T3 east corner": "T3 east corner",
+    checkPass: n => `self-check passed — ${n} road widths`,
+    checkFail: w => "self-check FAILED: " + w,
+    checkEdited: "sides edited — self-check applies to the recorded plot only",
+    working: "How each number is got, from the four recorded sides:",
+    diagTaped: "Ours was taped on site.",
+    diagGuessed: "Ours is <b>not yet taped</b> — it comes from four corners read " +
+                 "off satellite imagery, good to about ±1.2 m, which is ±17 m² of " +
+                 "area. A tape on AC would settle it.",
+    noTriangle: (a, b, c) => `no triangle with sides ${a}, ${b}, ${c}`,
+    badSide: (i, got, want) => `closure side ${i} came out ${got} m, not ${want}`,
+    steps: [
+      { t: v => "Close the boundary",
+        b: v => `Four sides do not fix a quadrilateral — they hinge, and the FMB
+          records only four. <b>AC is not derived from them: it is a fifth,
+          independent measurement.</b> ${v.diagSrc} Given it, the plot is two
+          triangles glued along AC, each solved from three known sides, and
+          everything below is measured off the four corners that fall out.` },
+      { t: v => "The north boundary is not parallel to the south",
+        b: v => `DC runs <b>${v.slant}°</b> off AB. That single fact is why a
+          rectangle cannot fill this plot, and it is where every offcut below
+          comes from.` },
+      { t: v => `Set the road back ${v.road}`,
+        b: v => `Offset DC inward by ${v.road}, measured perpendicular. The offset
+          line meets the west boundary at <b>F</b> and the east at <b>E</b>, giving
+          <b>DF = ${v.df}</b> and <b>EC = ${v.ec}</b>. DF is close to the road width
+          because the corner at D is ${v.dAngle}° — nearly square; EC is longer
+          because C is sharp.` },
+      { t: v => "Square the rectangle to the south boundary",
+        b: v => `Drop a perpendicular from F to AB, meeting it at <b>G</b>, so
+          <b>AG = ${v.ag}</b>. West of G the plot leans away and no rectangle can
+          reach it. The rectangle runs <b>GB = ${v.gb}</b>.` },
+      { t: v => "Raise it until it meets the road",
+        b: v => `Square to the south boundary the plot is <b>${v.hE}</b> deep at B
+          and <b>${v.hW}</b> at F, so the east end binds. The road takes
+          <b>${v.drop}</b> of that, not ${v.road}: ${v.road} is measured square to
+          DC, and DC is tilted ${v.slant}° to the line we are measuring down from,
+          so ${v.road} ÷ cos ${v.slant}° = ${v.drop}. That leaves
+          <b>${v.hE} − ${v.drop} = ${v.bh}</b> — the depth, all the way along.` },
+      { t: v => "T1 — the price of the slant",
+        b: v => `Base <b>JH = ${v.jh}</b>, the rectangle's flat top. The height
+          <b>JF = ${v.jf}</b> is simply how far the road's underside falls across
+          that width: it is ${v.jf} higher above the south boundary at the west end
+          than at the east, which is what the ${v.slant}° tilt costs over ${v.jh}.
+          JF is square to JH, so <b>½ × ${v.jh} × ${v.jf} = ${v.t1a} ft²</b>.` },
+      { t: v => "T2 — the west corner",
+        b: v => `Base <b>AG = ${v.ag}</b> — how far the west boundary leans in
+          over F's height. Height <b>GF = ${v.gf}</b>, the perpendicular that put G
+          there; G, J and F sit on one line, so it is just the rectangle plus T1:
+          ${v.bh} + ${v.jf}. <b>½ × ${v.ag} × ${v.gf} = ${v.t2a} ft²</b>.` },
+      { t: v => "T3 — the east corner",
+        b: v => `Base <b>BH = ${v.bh}</b>, the rectangle's east edge. The height
+          <b>${v.t3h}</b> is how far E lies east of that edge, measured square to
+          it — the width the plot gains between B and the road, which no rectangle
+          squared to the south can reach. <b>½ × ${v.bh} × ${v.t3h} =
+          ${v.t3a} ft²</b>.` },
+      { t: v => "Add it back up",
+        b: v => `Every piece is a rectangle, a trapezoid or a triangle, so every
+          area is one multiplication. They sum to <b>${v.total} ft²</b> — the whole
+          plot. If they did not, one of the steps above would be wrong.` },
+    ],
+  },
+  ta: {
+    lang: "English", boundary: "எல்லை அளவுகள், மீட்டரில் — மாற்றி பார்க்கலாம்",
+    north: "வடக்கு", east: "கிழக்கு", south: "தெற்கு", west: "மேற்கு",
+    diagonal: "மூலைவிட்டம் A–C",
+    roadLabel: "சாலை அகலம், வடக்கு எல்லைக்கு செங்குத்தாக",
+    splitLabel: "செவ்வகத்தைப் பிரி", oneRect: "ஒரே செவ்வகம்",
+    lots: n => `${n} சம மனைகள்`, metres: "மீட்டர்",
+    explainBtn: "இந்த அமைப்பை விளக்கு", backBtn: "← வரைபடத்திற்குத் திரும்பு",
+    closure: "மொத்த அளவு", slants: "வடக்கு எல்லையின் சாய்வு",
+    footer: "சாலை வடக்கு எல்லை முழுவதும் D→C செல்கிறது; அதன் உட்புற விளிம்பு மேற்கு " +
+            "எல்லையை F இலும் கிழக்கை E இலும் சந்திக்கிறது. செவ்வகம் தெற்கு எல்லைக்கு " +
+            "செங்குத்தாக நின்று அந்த விளிம்பைத் தொடும் வரை உயர்கிறது.",
+    registered: "பதிவு செய்யப்பட்ட பரப்பளவு", cannot: "இந்த அளவுகளை வரைய முடியாது",
+    noRoom: "அந்த அகலமான சாலைக்கு இடம் இல்லை",
+    thPiece: "பகுதி", thSides: "பக்கங்கள், பரப்பு = அடிப்படை × உயரம்",
+    thCents: "சென்ட்", tally: "மொத்தம்", partsSum: "பகுதிகளின் கூட்டுத்தொகை சரி",
+    partsDont: "பகுதிகள் கூடவில்லை",
+    Road: "சாலை", Rectangle: "செவ்வகம்", lot: n => `மனை ${n}`,
+    "T1 under the road": "T1 சாலைக்கு கீழே", "T2 west corner": "T2 மேற்கு மூலை",
+    "T3 east corner": "T3 கிழக்கு மூலை",
+    checkPass: n => `சுய சரிபார்ப்பு சரி — ${n} சாலை அகலங்கள்`,
+    checkFail: w => "சுய சரிபார்ப்பு தவறு: " + w,
+    checkEdited: "பக்க அளவுகள் மாற்றப்பட்டன — சுய சரிபார்ப்பு பதிவு அளவுகளுக்கு மட்டுமே",
+    working: "பதிவான நான்கு பக்க அளவுகளிலிருந்து ஒவ்வொரு எண்ணும் எப்படி வருகிறது:",
+    diagTaped: "நமது அளவு தரையில் நாடாவால் அளக்கப்பட்டது.",
+    diagGuessed: "நமது அளவு <b>இன்னும் நாடாவால் அளக்கப்படவில்லை</b> — செயற்கைக்கோள் " +
+                 "படத்திலிருந்து படித்த நான்கு மூலைகளிலிருந்து வந்தது, சுமார் ±1.2 மீ " +
+                 "துல்லியம், அதாவது ±17 ச.மீ பரப்பு. AC ஐ நாடாவால் அளந்தால் இது தீரும்.",
+    noTriangle: (a, b, c) => `${a}, ${b}, ${c} பக்கங்களுடன் முக்கோணம் அமையாது`,
+    badSide: (i, got, want) => `எல்லை ${i} ${got} மீ ஆக வந்தது, ${want} அல்ல`,
+    steps: [
+      { t: v => "எல்லையை மூடுதல்",
+        b: v => `நான்கு பக்க அளவுகள் மட்டும் ஒரு நாற்கரத்தை நிர்ணயிக்காது — அது
+          மடங்கும்; FMB இல் நான்கு பக்கங்கள் மட்டுமே பதிவாகியுள்ளன. <b>AC அவற்றிலிருந்து
+          கணக்கிடப்படவில்லை: அது ஐந்தாவது, தனி அளவீடு.</b> ${v.diagSrc} அது கிடைத்தால்,
+          நிலம் AC ஐ ஒட்டிய இரு முக்கோணங்கள் ஆகும்; ஒவ்வொன்றும் மூன்று தெரிந்த
+          பக்கங்களால் தீர்க்கப்படுகிறது, கீழே உள்ள அனைத்தும் அதிலிருந்து வரும் நான்கு
+          மூலைகளிலிருந்து அளக்கப்படுகிறது.` },
+      { t: v => "வடக்கு எல்லை தெற்குக்கு இணையாக இல்லை",
+        b: v => `DC ஆனது AB இலிருந்து <b>${v.slant}°</b> சாய்கிறது. இந்த ஒரு
+          காரணத்தால்தான் ஒரு செவ்வகம் இந்த நிலத்தை முழுமையாக நிரப்ப முடியாது; கீழே
+          வரும் ஒவ்வொரு மீதிப் பகுதியும் இதிலிருந்தே வருகிறது.` },
+      { t: v => `சாலைக்கு ${v.road} விடுதல்`,
+        b: v => `DC இலிருந்து செங்குத்தாக ${v.road} உள்நோக்கி நகர்த்துக. அந்தக் கோடு
+          மேற்கு எல்லையை <b>F</b> இலும் கிழக்கை <b>E</b> இலும் சந்திக்கிறது; இதனால்
+          <b>DF = ${v.df}</b>, <b>EC = ${v.ec}</b>. D மூலை ${v.dAngle}° — கிட்டத்தட்ட
+          செங்கோணம், எனவே DF சாலை அகலத்திற்கு நெருக்கமாக உள்ளது; C கூர்மையானது என்பதால்
+          EC நீளமாக உள்ளது.` },
+      { t: v => "தெற்கு எல்லைக்கு செங்குத்தாக செவ்வகம்",
+        b: v => `F இலிருந்து AB க்கு செங்குத்துக் கோடு இறக்கினால் அது <b>G</b> இல்
+          சந்திக்கிறது; எனவே <b>AG = ${v.ag}</b>. G க்கு மேற்கே நிலம் விலகிச் செல்வதால்
+          எந்தச் செவ்வகமும் அங்கு எட்டாது. செவ்வகத்தின் அடிப்படை <b>GB = ${v.gb}</b>.` },
+      { t: v => "சாலையைத் தொடும் வரை உயர்த்துதல்",
+        b: v => `தெற்கு எல்லைக்கு செங்குத்தாக அளந்தால் B இல் நிலத்தின் ஆழம்
+          <b>${v.hE}</b>, F இல் <b>${v.hW}</b> — எனவே கிழக்கு முனையே கட்டுப்படுத்துகிறது.
+          சாலை அதில் <b>${v.drop}</b> எடுக்கிறது, ${v.road} அல்ல: ${v.road} என்பது DC க்கு
+          செங்குத்தாக அளக்கப்படுகிறது, DC ஆனது நாம் அளக்கும் கோட்டிற்கு ${v.slant}°
+          சாய்ந்துள்ளது, எனவே ${v.road} ÷ cos ${v.slant}° = ${v.drop}. மீதம்
+          <b>${v.hE} − ${v.drop} = ${v.bh}</b> — இதுவே ஆழம், முழு நீளத்திற்கும்.` },
+      { t: v => "T1 — சாய்வுக்கான விலை",
+        b: v => `அடிப்படை <b>JH = ${v.jh}</b>, செவ்வகத்தின் தட்டையான மேற்பகுதி. உயரம்
+          <b>JF = ${v.jf}</b> என்பது அந்த அகலத்தில் சாலையின் அடிப்பகுதி எவ்வளவு
+          இறங்குகிறது என்பதே: மேற்கு முனையில் தெற்கு எல்லையிலிருந்து ${v.jf} அதிக
+          உயரம் — ${v.jh} நீளத்தில் ${v.slant}° சாய்வின் விலை. JF ஆனது JH க்கு
+          செங்குத்து, எனவே <b>½ × ${v.jh} × ${v.jf} = ${v.t1a} ச.அடி</b>.` },
+      { t: v => "T2 — மேற்கு மூலை",
+        b: v => `அடிப்படை <b>AG = ${v.ag}</b> — F இன் உயரத்திற்குள் மேற்கு எல்லை
+          எவ்வளவு உள்நோக்கி சாய்கிறது என்பது. உயரம் <b>GF = ${v.gf}</b>, G ஐ
+          உருவாக்கிய அதே செங்குத்துக் கோடு; G, J, F ஒரே கோட்டில் இருப்பதால் இது
+          செவ்வகம் மற்றும் T1 இன் கூட்டுத்தொகையே: ${v.bh} + ${v.jf}.
+          <b>½ × ${v.ag} × ${v.gf} = ${v.t2a} ச.அடி</b>.` },
+      { t: v => "T3 — கிழக்கு மூலை",
+        b: v => `அடிப்படை <b>BH = ${v.bh}</b>, செவ்வகத்தின் கிழக்கு விளிம்பு. உயரம்
+          <b>${v.t3h}</b> என்பது அந்த விளிம்பிற்கு கிழக்கே E எவ்வளவு தொலைவில் உள்ளது
+          என்பது, செங்குத்தாக அளந்தால் — B க்கும் சாலைக்கும் இடையே நிலம் பெறும் அகலம்,
+          தெற்குக்கு செங்குத்தான எந்தச் செவ்வகமும் அதை எட்டாது.
+          <b>½ × ${v.bh} × ${v.t3h} = ${v.t3a} ச.அடி</b>.` },
+      { t: v => "மொத்தத்தைச் சரிபார்த்தல்",
+        b: v => `ஒவ்வொரு பகுதியும் செவ்வகம், சரிவகம் அல்லது முக்கோணம் — எனவே ஒவ்வொரு
+          பரப்பளவும் ஒரே பெருக்கல். அவை கூடி <b>${v.total} ச.அடி</b> — முழு நிலமும்
+          அவ்வளவே. கூடவில்லை என்றால் மேலே ஒரு படி தவறாகும்.` },
+    ],
+  },
+};
+let LANG = "en";
+const T = (k, ...a) => {
+  const v = (I18N[LANG] || I18N.en)[k] ?? I18N.en[k] ?? k;
+  return typeof v === "function" ? v(...a) : v;
+};
+
+// ---------------------------------------------------------------- Geom
+const Geom = {
+  sub: (a, b) => [a[0] - b[0], a[1] - b[1]],
+  add: (a, b) => [a[0] + b[0], a[1] + b[1]],
+  mul: (a, k) => [a[0] * k, a[1] * k],
+  dot: (a, b) => a[0] * b[0] + a[1] * b[1],
+  dist: (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]),
+
+  unit(a, b) {
+    const d = Geom.sub(b, a), L = Math.hypot(d[0], d[1]);
+    return [[d[0] / L, d[1] / L], L];
+  },
+
+  // perpendicular foot of p on the line a-b
+  foot(p, a, b) {
+    const [u] = Geom.unit(a, b), t = Geom.dot(Geom.sub(p, a), u);
+    return Geom.add(a, Geom.mul(u, t));
+  },
+
+  // from p, perpendicular to a-b, out to the line c-d
+  crossTo(p, a, b, c, d) {
+    const [u] = Geom.unit(a, b), n = [-u[1], u[0]], [v] = Geom.unit(c, d);
+    const t = ((c[0] - p[0]) * v[1] - (c[1] - p[1]) * v[0]) / (n[0] * v[1] - n[1] * v[0]);
+    return Geom.add(p, Geom.mul(n, t));
+  },
+
+  // intersection of the infinite lines p1-p2 and p3-p4
+  meet(p1, p2, p3, p4) {
+    const d1 = Geom.sub(p2, p1), d2 = Geom.sub(p4, p3);
+    const den = d1[0] * d2[1] - d1[1] * d2[0];
+    const t = ((p3[0] - p1[0]) * d2[1] - (p3[1] - p1[1]) * d2[0]) / den;
+    return Geom.add(p1, Geom.mul(d1, t));
+  },
+
+  shoelace(pts) {
+    let s = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const j = (i + 1) % pts.length;
+      s += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1];
+    }
+    return Math.abs(s) / 2;
+  },
+
+  M2FT: 1 / 0.3048,
+
+  // circle-circle intersection; `left` picks the side of p->q to land on.
+  // Circles that cannot meet are refused: clamping would return a point that
+  // looks fine and silently gives the wrong quadrilateral.
+  meetR(p, r1, q, r2, left) {
+    const [u, d] = Geom.unit(p, q);
+    if (d > r1 + r2 + 1e-9 || d < Math.abs(r1 - r2) - 1e-9)
+      throw new Error(T("noTriangle", d.toFixed(2), r1.toFixed(2), r2.toFixed(2)));
+    const a = (r1 * r1 - r2 * r2 + d * d) / (2 * d);
+    const h = Math.sqrt(Math.max(0, r1 * r1 - a * a));
+    const s = left ? 1 : -1;
+    return [p[0] + u[0] * a - s * u[1] * h, p[1] + u[1] * a + s * u[0] * h];
+  },
+
+  // Four sides do not fix a quadrilateral; four sides and a diagonal do. Two
+  // triangles glued along the diagonal, each solved by circle intersection.
+  // Sides in metres, corners out in feet.
+  // The range a diagonal must fall in for both triangles to close.
+  diagonalRange({ north, east, south, west }) {
+    return [Math.max(Math.abs(south - east), Math.abs(north - west)),
+            Math.min(south + east, north + west)];
+  },
+
+  closure({ north, east, south, west, diagonal, ends = "AC" }) {
+    const A = [0, 0], B = [south, 0];
+    let C, D;
+    if (ends === "AC") {
+      C = Geom.meetR(A, diagonal, B, east, true);
+      D = Geom.meetR(A, west, C, north, true);
+    } else {
+      D = Geom.meetR(B, diagonal, A, west, false);
+      C = Geom.meetR(B, east, D, north, false);
+    }
+    const out = [A, B, C, D].map(p => [p[0] * Geom.M2FT, p[1] * Geom.M2FT]);
+    // The closure must carry the lengths it was given -- everything downstream
+    // is measured off these corners.
+    const want = [south, east, north, west];
+    for (let i = 0; i < 4; i++) {
+      const got = Geom.dist(out[i], out[(i + 1) % 4]) / Geom.M2FT;
+      if (Math.abs(got - want[i]) > 0.01)
+        throw new Error(T("badSide", i + 1, got.toFixed(2), want[i].toFixed(2)));
+    }
+    return out;
+  },
+
+  // The whole construction. corners = [A, B, C, D] in feet.
+  construct(corners, roadW, lots = 1) {
+    const [A, B, C, D] = corners;
+    const P = Geom.foot(D, A, B);
+    const Q = Geom.crossTo(B, A, B, D, C);
+    const hW = Geom.dist(P, D), hE = Geom.dist(B, Q);
+    const [u, base] = Geom.unit(P, B);
+    let n = [-u[1], u[0]];
+    if (Geom.dot(n, Geom.sub(D, P)) < 0) n = [-n[0], -n[1]];
+    const slant = Math.atan2(hW - hE, base);
+    const at = (t, h) => Geom.add(P, Geom.add(Geom.mul(u, t), Geom.mul(n, h)));
+    const height = x => hW - (hW - hE) * x / base;
+    const drop = roadW / Math.cos(slant);
+    const inner = x => height(x) - drop;
+
+    // where the road's inner edge cuts the two side boundaries
+    const i0 = at(-400, inner(-400)), i1 = at(400, inner(400));
+    const F = Geom.meet(i0, i1, A, D), E = Geom.meet(i0, i1, B, C);
+    const xW = Geom.dot(Geom.sub(F, P), u);
+    const depth = inner(base), width = base - xW;
+    const t1h = inner(xW) - depth;
+    const footW = Geom.dist(A, at(xW, 0));
+
+    const rect = [at(xW, 0), at(base, 0), at(base, depth), at(xW, depth)];
+    const t3foot = Geom.foot(E, B, at(base, depth));   // E onto the rectangle's east edge
+    const t3h = Geom.dist(E, t3foot);
+    const lotW = width / lots;
+    const lotPieces = Array.from({ length: lots }, (_, i) => ({
+      key: lots > 1 ? `lot${i + 1}` : "rect",
+      nk: lots > 1 ? "lot" : "Rectangle", ni: i + 1,
+      poly: [at(xW + i * lotW, 0), at(xW + (i + 1) * lotW, 0),
+             at(xW + (i + 1) * lotW, depth), at(xW + i * lotW, depth)],
+      why: `${lotW.toFixed(2)} × ${depth.toFixed(2)}`, area: lotW * depth }));
+    const pieces = [
+      { key: "road", nk: "Road", poly: [F, E, C, D],
+        why: `(${Geom.dist(D, C).toFixed(2)} + ${Geom.dist(F, E).toFixed(2)})/2 × ${roadW.toFixed(2)} ⟂`,
+        area: (Geom.dist(D, C) + Geom.dist(F, E)) / 2 * roadW },
+      ...lotPieces,
+      { key: "t1", nk: "T1 under the road", poly: [at(xW, depth), at(base, depth), F],
+        why: `½ × ${width.toFixed(2)} × ${t1h.toFixed(2)}`, area: width * t1h / 2 },
+      { key: "t2", nk: "T2 west corner", poly: [A, at(xW, 0), F],
+        why: `½ × ${footW.toFixed(2)} × ${inner(xW).toFixed(2)}`, area: footW * inner(xW) / 2 },
+      { key: "t3", nk: "T3 east corner", poly: [B, E, at(base, depth)],
+        why: `½ × ${Geom.dist(B, at(base, depth)).toFixed(2)} × ${t3h.toFixed(2)}`,
+        area: Geom.dist(B, at(base, depth)) * t3h / 2 },
+    ];
+    // Every vertex gets a letter; A-D are the plot corners and F, E the feet of
+    // the road's inner edge, so a length can be quoted as the pair it spans.
+    const vkey = q => q.map(v => v.toFixed(2)).join();
+    const reg = new Map([[vkey(A), "A"], [vkey(B), "B"], [vkey(C), "C"], [vkey(D), "D"],
+                         [vkey(F), "F"], [vkey(E), "E"]]);
+    const spare = [..."GHJKLMNPQRSTUVWXYZ"];
+    for (const p of pieces)
+      for (const q of p.poly)
+        if (!reg.has(vkey(q))) reg.set(vkey(q), spare.shift() || "?");
+    const nameOf = q => reg.get(vkey(q)) || "";
+    for (const p of pieces) {
+      p.name = p.nk === "lot" ? T("lot", p.ni) : T(p.nk);
+      p.sides = p.poly.map((q, i) => Geom.dist(q, p.poly[(i + 1) % p.poly.length]));
+      p.spans = p.poly.map((q, i) => nameOf(q) + nameOf(p.poly[(i + 1) % p.poly.length]));
+    }
+    const plot = Geom.shoelace(corners);
+    return { A, B, C, D, P, Q, F, E, at, height, inner, base, xW, width, depth,
+             hW, hE, slant: slant * 180 / Math.PI, roadW, rect, lots, lotW,
+             pieces, plot, nameOf,
+             allVertices: [...reg.keys()].map(kk => kk.split(",").map(Number)),
+             angles: [A, B, C, D].map((_, i) => {
+               const q2 = [A, B, C, D];
+               const [w1] = Geom.unit(q2[i], q2[(i + 3) % 4]);
+               const [w2] = Geom.unit(q2[i], q2[(i + 1) % 4]);
+               return Math.acos(Geom.dot(w1, w2)) * 180 / Math.PI;
+             }),
+             G: at(xW, 0), H: at(base, depth), J: at(xW, depth),
+             t3foot, t3h, t1h,
+             dAngle: (() => {
+               const [u1] = Geom.unit(D, A), [u2] = Geom.unit(D, C);
+               return Math.acos(Geom.dot(u1, u2)) * 180 / Math.PI;
+             })(),
+             total: pieces.reduce((s, p) => s + p.area, 0) };
+  },
+};
+
+// ---------------------------------------------------------------- units
+const FT2 = 1 / (0.3048 * 0.3048), CENT = 435.6;
+const fmt = {
+  ft2: a => a.toLocaleString(undefined, { maximumFractionDigits: 0 }),
+  cents: a => (a / CENT).toFixed(2),
+  m2: a => (a / FT2).toFixed(1),
+  len: (x, m) => m ? (x * 0.3048).toFixed(2) : x.toFixed(2),
+};
+
+// ---------------------------------------------------------------- Render
+const Render = {
+  fills: { road: ["#e9e9e9", "#9e9e9e"], rect: ["#d8f3f8", "#00b8d4"],
+           t1: ["#fdf0d5", "#c98a1e"], t2: ["#f6dcdc", "#8b2f2f"], t3: ["#f6dcdc", "#8b2f2f"] },
+
+  // lot1..lotN are slices of the rectangle and carry its colour
+  fill(key) { return Render.fills[key] || Render.fills.rect; },
+
+  project(m, box, padX = 118, padY = 54) {
+    const all = [m.A, m.B, m.C, m.D];
+    const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+    const [x0, y0] = [Math.min(...xs), Math.min(...ys)];
+    const [wf, hf] = [Math.max(...xs) - x0, Math.max(...ys) - y0];
+    const k = Math.min((box.w - 2 * padX) / wf, (box.h - 2 * padY) / hf);
+    const ox = (box.w - wf * k) / 2, oy = (box.h - hf * k) / 2;   // centred both ways
+    return { k, X: p => [ox + (p[0] - x0) * k, box.h - oy - (p[1] - y0) * k] };
+  },
+
+  // One placer for both views: a rotated label is as long as its text, so each is
+  // modelled as three points along its own baseline and kept clear of the rest.
+  // Anything with nowhere left to sit goes out to the margin on an arrow.
+  placeLabels(out, items, X, ctr, px0, px1, seed = []) {
+    const placed = seed.slice(), gutter = [];
+    out.push(`<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4"
+      markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,1 L7,4 L0,7 z" fill="#666"/></marker></defs>`);
+    for (const { a, b, label } of items) {
+      const [pa, pb] = [X(a), X(b)];
+      const len = Math.hypot(pb[0] - pa[0], pb[1] - pa[1]);
+      if (len < 14) continue;                         // shorter than its own badge
+      let n = [-(pb[1] - pa[1]) / len, (pb[0] - pa[0]) / len];
+      if (n[0] * (ctr[0] - pa[0]) + n[1] * (ctr[1] - pa[1]) < 0) n = [-n[0], -n[1]];
+      let ang = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI;
+      if (ang > 90 || ang < -90) ang += 180;
+      const half = label.length * 3.0;
+      const u = [(pb[0] - pa[0]) / len, (pb[1] - pa[1]) / len];
+      const spread = c => [[c[0] - u[0] * half, c[1] - u[1] * half], c,
+                           [c[0] + u[0] * half, c[1] + u[1] * half]];
+      let mid = null;
+      outer:
+      for (const dd of half * 2 > len ? [] : [9, 21, 33, -12, -24])
+        for (const f of [0.5, 0.34, 0.66, 0.2, 0.8, 0.42, 0.58]) {
+          const c = [pa[0] + (pb[0] - pa[0]) * f + n[0] * dd,
+                     pa[1] + (pb[1] - pa[1]) * f + n[1] * dd];
+          const pts = spread(c);
+          if (!placed.some(q => q.some(x => pts.some(y =>
+                Math.hypot(x[0] - y[0], x[1] - y[1]) < 13)))) { mid = c; break outer; }
+        }
+      if (mid) {
+        placed.push(spread(mid));
+        out.push(`<text x="${mid[0]}" y="${mid[1] + 4}" class="side"
+                   transform="rotate(${ang} ${mid[0]} ${mid[1]})">${label}</text>`);
+        continue;
+      }
+      const cm = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+      const left = cm[0] < ctr[0];
+      const gx = left ? px0 - 22 : px1 + 22;
+      let gy = cm[1];
+      while (gutter.some(g => g[0] === left && Math.abs(g[1] - gy) < 15)) gy += 15;
+      gutter.push([left, gy]);
+      placed.push([[gx, gy]]);
+      out.push(`<line x1="${gx + (left ? 4 : -4)}" y1="${gy - 3}" x2="${cm[0]}"
+                 y2="${cm[1]}" class="leader" marker-end="url(#ar)"/>`);
+      // a class, not the text-anchor attribute: the stylesheet's `text` rule
+      // would otherwise win and centre the label back over the drawing
+      out.push(`<text x="${gx}" y="${gy}" class="side ${left ? "a-end" : "a-start"}"
+                 >${label}</text>`);
+    }
+    return placed;
+  },
+
+  plan(m, box, metric) {
+    const all = [m.A, m.B, m.C, m.D];
+    const { k, X } = Render.project(m, box);
+    const path = pts => "M " + pts.map(p => X(p).join(",")).join(" L ") + " Z";
+    const L = x => fmt.len(x, metric);
+    const out = [];
+
+    for (const p of m.pieces) {
+      const [f, s] = Render.fill(p.key);
+      out.push(`<path class="piece" data-key="${p.key}" d="${path(p.poly)}"
+                 fill="${f}" stroke="${s}" stroke-width="1.5"/>`);
+    }
+    out.push(`<path d="${path([m.A, m.B, m.C, m.D])}" fill="none" stroke="#000" stroke-width="2.5"/>`);
+    for (const [a, b] of [[m.at(m.xW, 0), m.F], [m.B, m.at(m.base, m.depth)]]) {
+      const [p, q] = [X(a), X(b)];
+      out.push(`<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"
+                 stroke="#a00" stroke-width="2"/>`);
+    }
+    for (const p of m.pieces) {
+      const c = p.poly.reduce((a, q) => [a[0] + q[0] / p.poly.length, a[1] + q[1] / p.poly.length], [0, 0]);
+      const [cx, cy] = X(c);
+      const big = Geom.shoelace(p.poly) * k * k > 30000;
+      // Wide pieces carry their name and arithmetic. A sliver carries its tag
+      // alone, turned to run along its own longest edge so it stays inside the
+      // shape instead of lying across the drawing.
+      if (big) {
+        out.push(`<text x="${cx}" y="${cy}" class="lab big" data-key="${p.key}">${p.name}</text>`);
+      } else {
+        let best = null;
+        for (let i = 0; i < p.poly.length; i++) {
+          const a = X(p.poly[i]), b = X(p.poly[(i + 1) % p.poly.length]);
+          const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+          if (!best || d > best[0]) best = [d, a, b];
+        }
+        let ang = Math.atan2(best[2][1] - best[1][1], best[2][0] - best[1][0]) * 180 / Math.PI;
+        if (ang > 90 || ang < -90) ang += 180;
+        out.push(`<text x="${cx}" y="${cy}" class="lab tagonly" data-key="${p.key}"
+                   transform="rotate(${ang} ${cx} ${cy})">${p.key.toUpperCase()}</text>`);
+      }
+    }
+    // Each piece's own side lengths, on the edges. Pieces share edges -- the
+    // rectangle's top is also T1's base -- so each edge is labelled once,
+    // keyed on its midpoint.
+    const seen = new Map(), verts = new Map(), placed = [];
+    for (const p of m.pieces) {
+      const c = p.poly.reduce((s2, q) => [s2[0] + q[0] / p.poly.length,
+                                          s2[1] + q[1] / p.poly.length], [0, 0]);
+      for (let i = 0; i < p.poly.length; i++) {
+        const a = p.poly[i], b = p.poly[(i + 1) % p.poly.length];
+        verts.set(a.map(v => v.toFixed(2)).join(), a);
+        const key = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2].map(v => Math.round(v)).join();
+        if (!seen.has(key)) seen.set(key, [a, b, c, p.key]);
+      }
+    }
+    const ctr = X(all.reduce((a, q) => [a[0] + q[0] / 4, a[1] + q[1] / 4], [0, 0]));
+    const spanTxt = (a2, b2) =>
+      `${m.nameOf(a2)}${m.nameOf(b2)} = ${L(Geom.dist(a2, b2))}`;
+
+    // Segment lengths sit on their own segment, quoted as the pair they span.
+    // Near-parallel edges would land their midpoints together, so a label slides
+    // along its edge to the first free spot.
+    const bx = [m.A, m.B, m.C, m.D].map(X);
+    const px0 = Math.min(...bx.map(q => q[0])), px1 = Math.max(...bx.map(q => q[0]));
+    Render.placeLabels(out, [...seen.values()].map(([a2, b2]) =>
+      ({ a: a2, b: b2, label: spanTxt(a2, b2) })), X, ctr, px0, px1,
+      [...verts.values()].map(v => [X(v)]));
+
+    // the four recorded boundaries, outside the plot
+    const single = ([a2, b2]) => [...seen.values()].some(([u, v]) =>
+      (Geom.dist(u, a2) < 0.05 && Geom.dist(v, b2) < 0.05) ||
+      (Geom.dist(u, b2) < 0.05 && Geom.dist(v, a2) < 0.05));
+    for (const [a2, b2] of [[m.D, m.C], [m.A, m.B], [m.B, m.C], [m.A, m.D]]) {
+      if (single([a2, b2])) continue;          // already labelled on the segment
+      const [pa, pb] = [X(a2), X(b2)];
+      let ang = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI;
+      if (ang > 90 || ang < -90) ang += 180;
+      let [mx, my] = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2];
+      const away = [mx - ctr[0], my - ctr[1]], d = Math.hypot(...away) || 1;
+      mx += away[0] / d * 20; my += away[1] / d * 20;
+      out.push(`<text x="${mx}" y="${my}" class="dim"
+                 transform="rotate(${ang} ${mx} ${my})">${spanTxt(a2, b2)}</text>`);
+    }
+
+    // a badge on every vertex
+    for (const v of verts.values()) {
+      const [x, y] = X(v), nm = m.nameOf(v);
+      const kind = "ABCD".includes(nm) ? "corner" : "FE".includes(nm) ? "node" : "inner";
+      out.push(`<circle cx="${x}" cy="${y}" r="${kind === "inner" ? 6.5 : 8}"
+                 class="badge b-${kind}"/>`);
+      out.push(`<text x="${x}" y="${y + 3.5}" class="${kind}">${nm}</text>`);
+    }
+    return out.join("\n");
+  },
+
+  schedule(m, metric) {
+    const u = metric ? "m²" : "ft²";
+    const val = a => metric ? fmt.m2(a) : fmt.ft2(a);
+    const L = x => fmt.len(x, metric);
+    const rows = m.pieces.map(p => `<tr data-key="${p.key}">
+        <td><span class="sw" style="background:${Render.fill(p.key)[0]};
+            border-color:${Render.fill(p.key)[1]}"></span>${p.name}</td>
+        <td class="why">${p.spans.map((sp, i) => `${sp} ${L(p.sides[i])}`).join(", ")}
+            <br><i>${p.why}</i></td>
+        <td class="n">${val(p.area)}</td>
+        <td class="n">${fmt.cents(p.area)}</td>
+        <td class="n">${(p.area / m.plot * 100).toFixed(1)}%</td></tr>`).join("");
+    const ok = Math.abs(m.total - m.plot) < 0.5;
+    return `<table><thead><tr><th>${T("thPiece")}</th><th>${T("thSides")}</th>
+        <th class="n">${u}</th><th class="n">${T("thCents")}</th>
+        <th class="n">%</th></tr></thead><tbody>${rows}</tbody>
+      <tfoot><tr class="${ok ? "ok" : "bad"}"><td>${T("tally")}</td><td class="why">
+        ${ok ? T("partsSum") : T("partsDont") + " — " + (m.total - m.plot).toFixed(1) + " ft²"}</td>
+        <td class="n">${val(m.total)}</td><td class="n">${fmt.cents(m.total)}</td>
+        <td class="n">100.0%</td></tr></tfoot></table>`;
+  },
+};
+
+// ---------------------------------------------------------------- Explain
+// The construction, one move at a time. Each step names what it adds and where
+// the numbers come from; nothing appears before the step that derives it.
+const Explain = {
+  steps(m, L) {
+    const d = (a, b) => L(Geom.dist(a, b));
+    const bound = [[m.A, m.B], [m.B, m.C], [m.C, m.D], [m.D, m.A]];
+    const ang = ["A", "B", "C", "D"].map((_, i) => {
+      const q = [m.A, m.B, m.C, m.D];
+      const [u1] = Geom.unit(q[i], q[(i + 3) % 4]), [u2] = Geom.unit(q[i], q[(i + 1) % 4]);
+      return Math.acos(Geom.dot(u1, u2)) * 180 / Math.PI;
+    });
+    const [aA, aB, aC, aD] = ang.map(x => x.toFixed(2));
+    const tan = x => Math.tan(x * Math.PI / 180).toFixed(3);
+    const v = { ac: d(m.A, m.C), slant: m.slant.toFixed(2), road: L(m.roadW),
+                aA, aB, aC, aD,
+                ab: d(m.A, m.B), ad: d(m.A, m.D), dc: d(m.D, m.C), be: d(m.B, m.E),
+                ap: L(Geom.dist(m.A, m.P)), pb: L(m.base),
+                fall: L(m.base * Math.tan(m.slant * Math.PI / 180)),
+                gf: d(m.G, m.F), tanA: tan(ang[0]),
+                diagSrc: T(SITE.diagTaped ? "diagTaped" : "diagGuessed"),
+                ...(() => {                       // the halves the diagonal makes
+                  const cr = (x, y, z) => (Math.acos((x * x + y * y - z * z) /
+                    (2 * x * y)) * 180 / Math.PI).toFixed(2);
+                  const [ab, bc, cd, da, ac] = [Geom.dist(m.A, m.B), Geom.dist(m.B, m.C),
+                    Geom.dist(m.C, m.D), Geom.dist(m.D, m.A), Geom.dist(m.A, m.C)];
+                  return { bac: cr(ab, ac, bc), cad: cr(ac, da, cd),
+                           acb: cr(ac, bc, ab), acd: cr(ac, cd, da),
+                           sum: ang.reduce((x, y) => x + y, 0).toFixed(2) };
+                })(),
+                df: d(m.D, m.F), ec: d(m.E, m.C), dAngle: m.dAngle.toFixed(2),
+                ag: d(m.A, m.G), gb: d(m.G, m.B), bh: d(m.B, m.H),
+                jh: d(m.J, m.H), jf: d(m.J, m.F), gf: d(m.G, m.F),
+                t3h: L(m.t3h), total: fmt.ft2(m.plot),
+                hE: L(m.hE), hW: L(m.hW),
+                drop: L(m.roadW / Math.cos(m.slant * Math.PI / 180)),
+                ...Object.fromEntries(["t1", "t2", "t3"].map(k =>
+                  [k + "a", fmt.ft2(m.pieces.find(p => p.key === k).area)])) };
+    const work = [
+      [`AC must lie between ${L(SITE.range[0] * Geom.M2FT)} and ` +
+       `${L(SITE.range[1] * Geom.M2FT)}, or one of the two triangles cannot close;`,
+       `ours is ${v.ac}${SITE.diagTaped ? " — taped on site" :
+         ", read off satellite imagery — NOT yet taped"}`,
+       `the diagonal splits the plot into triangles ABC and ACD;`,
+       `each angle then comes from the cosine rule on three known sides:`,
+       `B = acos((AB² + BC² − AC²) / (2·AB·BC)) = ${v.aB}°`,
+       `D = acos((CD² + DA² − AC²) / (2·CD·DA)) = ${v.aD}°`,
+       `A = ∠BAC + ∠CAD = ${v.bac}° + ${v.cad}° = ${v.aA}°`,
+       `C = ∠ACB + ∠ACD = ${v.acb}° + ${v.acd}° = ${v.aC}°`,
+       `check: A + B + C + D = ${v.sum}° (must be 360°)`],
+      [`slant = 180° − A − D = 180 − ${v.aA} − ${v.aD} = ${v.slant}°`],
+      [`DF = road ÷ sin D = ${v.road} ÷ sin ${v.aD}° = ${v.df}`,
+       `EC = road ÷ sin C = ${v.road} ÷ sin ${v.aC}° = ${v.ec}`,
+       `FE = DC − road/tan C − road/tan D = ${v.dc} − 9.04 + 0.32 = ${d(m.F, m.E)}`],
+      [`AP = AD · cos A = ${v.ad} × cos ${v.aA}° = ${v.ap}`,
+       `AG = GF ÷ tan A = ${v.gf} ÷ ${v.tanA} = ${v.ag}`,
+       `GB = AB − AG = ${v.ab} − ${v.ag} = ${v.gb}`],
+      [`hW = AD · sin A = ${v.ad} × sin ${v.aA}° = ${v.hW}`,
+       `PB = AB − AP = ${v.ab} − ${v.ap} = ${v.pb}`,
+       `hE = hW − PB · tan slant = ${v.hW} − ${v.fall} = ${v.hE}`,
+       `drop = road ÷ cos slant = ${v.road} ÷ cos ${v.slant}° = ${v.drop}`,
+       `BH = hE − drop = ${v.hE} − ${v.drop} = ${v.bh}`],
+      [`JF = JH · tan slant = ${v.jh} × tan ${v.slant}° = ${v.jf}`],
+      [`GF = BH + JF = ${v.bh} + ${v.jf} = ${v.gf}`,
+       `AG = GF ÷ tan A = ${v.gf} ÷ ${v.tanA} = ${v.ag}`],
+      [`height = BE · sin(B − 90°) = ${v.be} × sin ${(+v.aB - 90).toFixed(2)}° = ${v.t3h}`],
+      [],
+    ];
+    const shape = [
+      { segs: [...bound, [m.A, m.C]], marks: [m.A, m.B, m.C, m.D], pieces: [],
+        angles: [0, 1, 2, 3] },
+      { segs: bound, marks: [m.A, m.B, m.C, m.D], pieces: [], angles: [0, 3] },
+      { segs: [[m.D, m.F], [m.E, m.C], [m.F, m.E], [m.D, m.C]],
+        marks: [m.A, m.B, m.C, m.D, m.F, m.E], pieces: ["road"], angles: [2, 3] },
+      { segs: [[m.A, m.G], [m.G, m.B], [m.F, m.G]],
+        marks: [m.A, m.B, m.D, m.F, m.G], pieces: ["road"], angles: [0] },
+      { segs: [[m.B, m.H], [m.G, m.J], [m.H, m.J]], marks: [m.B, m.G, m.H, m.J],
+        angles: [0],
+        pieces: ["road", ...m.pieces.filter(p => p.key.startsWith("lot") ||
+                 p.key === "rect").map(p => p.key)] },
+      { segs: [[m.J, m.H], [m.J, m.F]], marks: [m.F, m.H, m.J],
+        pieces: ["road", "t1", ...m.pieces.filter(p => p.key.startsWith("lot") ||
+                 p.key === "rect").map(p => p.key)] },
+      { segs: [[m.A, m.G], [m.G, m.F]], marks: [m.A, m.F, m.G], angles: [0],
+        pieces: ["road", "t1", "t2", ...m.pieces.filter(p => p.key.startsWith("lot") ||
+                 p.key === "rect").map(p => p.key)] },
+      { segs: [[m.B, m.H], [m.E, m.t3foot]], marks: [m.B, m.E, m.H], angles: [1],
+        pieces: m.pieces.map(p => p.key) },
+      { segs: [], marks: m.allVertices, pieces: m.pieces.map(p => p.key), table: true },
+    ];
+    return shape.map((sh, i) => ({ ...sh, title: T("steps")[i].t(v),
+                                   body: T("steps")[i].b(v), work: work[i] }));
+  },
+
+  render(m, box, metric, step) {
+    const { X } = Render.project(m, box);
+    const L = x => fmt.len(x, metric);
+    const out = [];
+    const path = pts => "M " + pts.map(p => X(p).join(",")).join(" L ") + " Z";
+    for (const p of m.pieces)
+      if (step.pieces.includes(p.key)) {
+        const [f, st] = Render.fill(p.key);
+        out.push(`<path d="${path(p.poly)}" fill="${f}" stroke="${st}" stroke-width="1.5"/>`);
+      }
+    out.push(`<path d="${path([m.A, m.B, m.C, m.D])}" fill="none" stroke="#000"
+               stroke-width="2.5"/>`);
+    for (const [a, b] of step.segs) {
+      const [pa, pb] = [X(a), X(b)];
+      out.push(`<line x1="${pa[0]}" y1="${pa[1]}" x2="${pb[0]}" y2="${pb[1]}"
+                 class="hilite"/>`);
+    }
+    // an arc at each corner the step reasons about, drawn between its two edges
+    const q = [m.A, m.B, m.C, m.D];
+    const seedAngles = [];
+    for (const i of step.angles || []) {
+      const at = X(q[i]), p1 = X(q[(i + 3) % 4]), p2 = X(q[(i + 1) % 4]);
+      const un = c => { const d2 = [c[0] - at[0], c[1] - at[1]],
+                              L2 = Math.hypot(...d2); return [d2[0] / L2, d2[1] / L2]; };
+      const [u1, u2] = [un(p1), un(p2)];
+      const r = 30, sweep = u1[0] * u2[1] - u1[1] * u2[0] > 0 ? 1 : 0;
+      const [sx, sy] = [at[0] + u1[0] * r, at[1] + u1[1] * r];
+      const [ex, ey] = [at[0] + u2[0] * r, at[1] + u2[1] * r];
+      out.push(`<path d="M ${sx} ${sy} A ${r} ${r} 0 0 ${sweep} ${ex} ${ey}"
+                 class="arc"/>`);
+      const bis = [u1[0] + u2[0], u1[1] + u2[1]];
+      const bl = Math.hypot(...bis) || 1;
+      const lx = at[0] + bis[0] / bl * (r + 16), ly = at[1] + bis[1] / bl * (r + 16);
+      seedAngles.push([[lx - 26, ly], [lx, ly], [lx + 26, ly]]);
+      out.push(`<text x="${lx}" y="${ly + 4}" class="angle">${"ABCD"[i]}
+                 ${m.angles[i].toFixed(2)}°</text>`);
+    }
+    const bx = [m.A, m.B, m.C, m.D].map(X);
+    const ctr = [bx.reduce((t, q) => t + q[0] / 4, 0), bx.reduce((t, q) => t + q[1] / 4, 0)];
+    Render.placeLabels(out,
+      step.segs.map(([a, b]) => ({ a, b,
+        label: `${m.nameOf(a)}${m.nameOf(b)} = ${L(Geom.dist(a, b))}` })),
+      X, ctr, Math.min(...bx.map(q => q[0])), Math.max(...bx.map(q => q[0])),
+      [...seedAngles, ...step.marks.map(v => [X(v)])]);
+
+    for (const v of step.marks) {
+      const nm = m.nameOf(v);
+      const [x, y] = X(v);
+      const kind = "ABCD".includes(nm) ? "corner" : "FE".includes(nm) ? "node" : "inner";
+      out.push(`<circle cx="${x}" cy="${y}" r="8" class="badge b-${kind}"/>`);
+      out.push(`<text x="${x}" y="${y + 3.5}" class="${kind}">${nm}</text>`);
+    }
+    return out.join("\n");
+  },
+};
+
+// ---------------------------------------------------------------- self-check
+// The page derives everything itself; these vectors are the Python's answers for
+// the recorded sides, so the two can never quietly disagree.
+function selfCheck(sides) {
+  const same = ["north", "east", "south", "west", "diagonal"]
+    .every(k => Math.abs(sides[k] - SITE.sides[k]) < 1e-9);
+  if (!same) return T("checkEdited");
+  const corners = Geom.closure(SITE.sides), bad = [];
+  for (const [w, want] of Object.entries(SITE.vectors)) {
+    const got = Geom.construct(corners, +w).pieces.map(p => p.area);
+    want.forEach((v, i) => { if (Math.abs(v - got[i]) > 0.5) bad.push(`${w}ft/${i}`); });
+  }
+  return bad.length ? T("checkFail", bad.join(" "))
+                    : T("checkPass", Object.keys(SITE.vectors).length);
+}
+
+// ---------------------------------------------------------------- UI
+const UI = {
+  read() {
+    const v = id => +document.getElementById(id).value;
+    return { north: v("north"), east: v("east"), south: v("south"), west: v("west"),
+             diagonal: v("diagonal"), ends: "AC" };
+  },
+
+  draw() {
+    if (UI.mode === "explain") return UI.explain();
+    const $ = s => document.querySelector(s);
+    const sides = UI.read(), metric = $("#metric").checked;
+    const roadW = +$("#road").value, lots = +$("#lots").value;
+    $("#roadv").textContent = fmt.len(roadW, metric) + (metric ? " m" : " ft");
+    $("#lotsv").textContent = lots === 1 ? T("oneRect") : T("lots", lots);
+    try {
+      const m = Geom.construct(Geom.closure(sides), roadW, lots);
+      if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
+      const svg = $("#plan"), b = svg.getBoundingClientRect();
+      svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
+      svg.innerHTML = Render.plan(m, { w: b.width, h: b.height }, metric);
+      $("#sched").innerHTML = Render.schedule(m, metric);
+      $("#slant").textContent = m.slant.toFixed(2);
+      $("#area").textContent =
+        `${fmt.ft2(m.plot)} ft² = ${fmt.cents(m.plot)} cents = ${fmt.m2(m.plot)} m²`;
+    } catch (e) {
+      $("#sched").innerHTML = `<p class="bad">${T("cannot")}: ${e.message}</p>`;
+      $("#plan").innerHTML = "";
+      return;
+    }
+    const msg = selfCheck(sides);
+    $("#check").textContent = msg;
+    $("#check").className = msg.startsWith("self-check passed") ? "ok"
+                          : msg.startsWith("self-check FAILED") ? "bad" : "";
+    UI.hover();
+  },
+
+  hover() {
+    const set = (k, on) => document.querySelectorAll(`[data-key="${k}"]`)
+      .forEach(e => e.classList.toggle("hi", on));
+    document.querySelectorAll("[data-key]").forEach(e => {
+      e.onmouseenter = () => set(e.dataset.key, true);
+      e.onmouseleave = () => set(e.dataset.key, false);
+    });
+  },
+
+  mode: "plan",
+  step: 0,
+
+  explain() {
+    const $ = s2 => document.querySelector(s2);
+    const sides = UI.read(), metric = $("#metric").checked;
+    const m = Geom.construct(Geom.closure(sides), +$("#road").value, +$("#lots").value);
+    const steps = Explain.steps(m, x => fmt.len(x, metric));
+    UI.step = Math.max(0, Math.min(UI.step, steps.length - 1));
+    const st = steps[UI.step];
+    const svg = $("#plan"), b = svg.getBoundingClientRect();
+    svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
+    svg.innerHTML = Explain.render(m, { w: b.width, h: b.height }, metric, st);
+    $("#stepno").textContent = `${UI.step + 1} / ${steps.length}`;
+    $("#steps").max = steps.length - 1;
+    $("#steps").value = UI.step;
+    $("#sched").innerHTML = `<h2>${st.title}</h2><p>${st.body}</p>` +
+      (st.work && st.work.length
+        ? `<div class="work"><b>${T("working")}</b><ul>` +
+          st.work.map(w => `<li>${w}</li>`).join("") + "</ul></div>"
+        : "") +
+      (st.table ? Render.schedule(m, metric) : "");
+    $("#area").textContent =
+      `${fmt.ft2(m.plot)} ft² = ${fmt.cents(m.plot)} cents = ${fmt.m2(m.plot)} m²`;
+    $("#slant").textContent = m.slant.toFixed(2);
+  },
+
+  setMode(mode) {
+    UI.mode = mode;
+    document.body.classList.toggle("explaining", mode === "explain");
+    document.querySelector("#explain").textContent =
+      mode === "explain" ? T("backBtn") : T("explainBtn");
+    UI.draw();
+  },
+
+  applyLang() {
+    const set = (id, txt) => { const e = document.getElementById(id);
+      if (e) e.textContent = txt; };
+    document.documentElement.lang = LANG;
+    set("lang", T("lang"));
+    set("l-bnd", T("boundary"));
+    for (const k of ["north", "east", "south", "west", "diagonal"]) set("l-" + k, T(k));
+    set("l-road", T("roadLabel"));
+    set("l-lots", T("splitLabel"));
+    set("l-metric", T("metres"));
+    set("l-closure", T("closure"));
+    set("l-slant", T("slants"));
+    const f = document.getElementById("l-foot");
+    if (f) f.textContent = `${T("footer")} ${T("registered")} ${f.dataset.reg} m².`;
+    document.querySelector("#explain").textContent =
+      UI.mode === "explain" ? T("backBtn") : T("explainBtn");
+    UI.draw();
+  },
+
+  init() {
+    document.querySelector("#lang").onclick = () => {
+      LANG = LANG === "en" ? "ta" : "en";
+      try { localStorage.setItem("tslr-lang", LANG); } catch (e) { /* private mode */ }
+      UI.applyLang();
+    };
+    try { LANG = localStorage.getItem("tslr-lang") || "en"; } catch (e) { /* private mode */ }
+    document.querySelector("#explain").onclick = () =>
+      UI.setMode(UI.mode === "explain" ? "plan" : "explain");
+    document.querySelector("#steps").addEventListener("input", e => {
+      UI.step = +e.target.value; UI.explain();
+    });
+    document.querySelector("#prev").onclick = () => { UI.step--; UI.explain(); };
+    document.querySelector("#next").onclick = () => { UI.step++; UI.explain(); };
+    addEventListener("keydown", e => {
+      if (UI.mode !== "explain") return;
+      if (e.key === "ArrowRight") { UI.step++; UI.explain(); }
+      if (e.key === "ArrowLeft") { UI.step--; UI.explain(); }
+    });
+    for (const [k, v] of Object.entries(SITE.sides))
+      if (document.getElementById(k)) document.getElementById(k).value = v;
+    document.querySelectorAll("input").forEach(e => e.addEventListener("input", UI.draw));
+    addEventListener("resize", UI.draw);
+    UI.applyLang();
+  },
+};
+
+addEventListener("DOMContentLoaded", UI.init);

@@ -1,0 +1,79 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::32644"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "A",
+    "lat": 9.9532666,
+    "lon": 78.1584818,
+    "easting": 188417.05,
+    "northing": 1101581.75
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188417.04527681845,
+     1101581.754757284
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "B",
+    "lat": 9.9532377,
+    "lon": 78.1590569,
+    "easting": 188480.13,
+    "northing": 1101578.02
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188480.13471274116,
+     1101578.0180374717
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "C",
+    "lat": 9.9534254,
+    "lon": 78.1591836,
+    "easting": 188494.21,
+    "northing": 1101598.68
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188494.21126885441,
+     1101598.6783997142
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "D",
+    "lat": 9.9535332,
+    "lon": 78.158531,
+    "easting": 188422.7,
+    "northing": 1101611.22
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188422.7021525677,
+     1101611.2165928811
+    ]
+   }
+  }
+ ]
+}

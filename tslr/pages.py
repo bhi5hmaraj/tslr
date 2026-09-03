@@ -1,0 +1,257 @@
+"""The two page templates.
+
+`plan` is measurements only -- boundaries, lot sizes, road widths, the two
+construction cuts and the offcut heights. `schedule` is the arithmetic that adds
+those measurements back up to the plot, so the plan stays readable and the
+numbers stay checkable.
+"""
+from __future__ import annotations
+
+import math
+
+from . import geometry as G
+from .sheet import Sheet
+
+
+def _title(sh, left, right, sub_l="", sub_r=""):
+    sh.txt(14, 12, left, 4.4, "start", weight="bold")
+    sh.txt(sh.p.w - 14, 12, right, 3.2, "end", fill="#666")
+    if sub_l:
+        sh.txt(14, 18.5, sub_l, 3.6, "start", fill="#333")
+    if sub_r:
+        sh.txt(sh.p.w - 14, 18.5, sub_r, 3.0, "end", fill="#666")
+
+
+def plan(sh: Sheet, option: str, place="TS 11/14/18 · Ward-16 Thallakulam · Madurai North"):
+    c = sh.c
+    A, B, C, D = c.plot.corners
+    sh.open()
+    _title(sh, place, f"scale 1:{sh.p.denom} — print at 100% on {sh.p.name}",
+           f"OPTION {option}", "north up · all figures in feet")
+
+    for _, t in c.offcuts:
+        sh.path(t, "#f6dcdc", "#c98c8c", 0.18)
+    sh.path(c.road, "#e9e9e9", "#999", 0.2)
+    for lot in c.lots:
+        sh.path(lot, "#fff", "#000", 0.45)
+    sh.path(c.plot.quad, "none", "#000", 0.9)
+    for a, b in ((D, c.P), (B, c.Q)):                     # the two construction cuts
+        sh.line(a, b, "#a00", 0.7)
+
+    w20 = c.width_line(20)
+    parts = list(w20.geoms) if w20.geom_type.startswith("Multi") else [w20]
+    parts = [s for s in parts if not s.is_empty and s.length >= 1]
+    for seg in parts:
+        sh.line(seg.coords[0], seg.coords[-1], "#0033aa", 0.5, dash="2.4 1.6")
+    if parts:
+        seg = max(parts, key=lambda t: t.length)
+        (ax, ay), (bx, by) = sh.px(seg.coords[0]), sh.px(seg.coords[-1])
+        sh.txt((ax + bx) / 2, (ay + by) / 2 + 3.2, "20 ft ⟂", 2.8, fill="#0033aa",
+               weight="bold", rot=math.degrees(math.atan2(by - ay, bx - ax)))
+
+    for nm, pt in (("P", c.P), ("Q", c.Q)):
+        cx, cy = sh.px(pt)
+        sh.out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="1.1" fill="#a00"/>')
+        sh.txt(cx + 4, cy + 1.2, nm, 3.6, fill="#a00", weight="bold")
+    for nm, pt in zip("ABCD", c.plot.corners):
+        cx, cy = sh.px(pt)
+        sh.txt(cx + (-4.5 if nm in "AD" else 4.5), cy + (4 if nm in "AB" else -2),
+               nm, 3.6, weight="bold")
+
+    for k, lot in enumerate(c.lots):
+        cx, cy = sh.px(lot.centroid.coords[0])
+        sh.txt(cx, cy - 1.6, f"LOT {k + 1}", 5.4, weight="bold")
+        sh.txt(cx, cy + 4.4, f"{c.cuts[k + 1] - c.cuts[k]:.2f} × {c.depths[k]:.2f}", 4.0)
+    # the road split at the lot joints -- one bay per lot, so the schedule's
+    # (h1 + h2)/2 x w arithmetic can be found on the drawing
+    for x in c.cuts:
+        sh.line(c.at(x, 0), c.at(x, c.height(x)), "#9e9e9e", 0.25, dash="1.6 1.2")
+    for k, bay in enumerate(c.road_bays):
+        bx, by = sh.px(bay.poly.representative_point().coords[0])
+        sh.txt(bx, by + 1.0, f"bay {k + 1}", 2.9, fill="#666")
+    for x, d in zip(c.cuts, list(c.depths) + [c.depths[-1]]):
+        sh.dim(c.at(x, c.height(x)), c.at(x, d), 0, f"{c.height(x) - d:.2f}", 2.6, "#666")
+    rx, ry = sh.px(c.road.representative_point().coords[0])
+    sh.txt(rx, ry + 7.5, f"ROAD  {c.road_west:.2f} → {c.road_east:.2f} ft wide", 3.2,
+           weight="bold", fill="#444")
+
+    for nm, t in c.offcuts:
+        pt = t.representative_point()
+        gx, gy = sh.px((pt.x, pt.y))
+        if nm == "W1":                                    # a 2.6 ft slice: tag it on a leader
+            sh.line((gx, gy), (gx - 13, gy - 11), "#8b2f2f", 0.22, raw=True)
+            gx, gy = gx - 15, gy - 12
+        sh.txt(gx, gy + 1.0, nm, 3.6, weight="bold", fill="#8b2f2f")
+        big = max(G.fan(t), key=lambda z: z[4])
+        if big[4] >= 150:
+            sh.height_mark(big[0], big[1], big[3])
+
+    dx, dy = sh.px(D)
+    sh.out.append(f'<circle cx="{dx:.1f}" cy="{dy:.1f}" r="1.7" fill="none" stroke="#a00" '
+                  f'stroke-width=".5"/>')
+    sh.line((dx - 1.7, dy), (20, dy - 9), "#a00", 0.25, raw=True)
+    sh.txt(14, dy - 11, "ENTRANCE 9.84", 3.2, "start", fill="#a00", weight="bold")
+    nx, ny = sh.p.w - 24.0, sh.oy + sh.plan_h * 0.96
+    sh.line((nx, ny), (nx, ny - 13), "#111", 0.5, raw=True)
+    sh.out.append(f'<path d="M {nx - 2},{ny - 9} L {nx},{ny - 14} L {nx + 2},{ny - 9} Z" '
+                  f'fill="#111"/>')
+    sh.txt(nx, ny + 4.5, "N", 4.0, weight="bold")
+
+    m = c.plot
+    for a, b, off, name, length in ((D, C, -12, "north", m.north), (B, A, -19, "south", m.south),
+                                    (C, B, -13, "east", m.east), (A, D, -11, "west", m.west)):
+        sh.dim(a, b, off, f"{name}  {length * G.M2FT:.2f}", 3.2)
+    sh.dim(B, c.P, -11, f"P–B  {c.base:.2f}", 2.9, "#a00")
+    sh.dim(c.Q, B, 6.5, f"B–Q  {c.h_east:.2f}", 2.8, "#a00")
+    for k, lot in enumerate(c.lots):
+        e = G.verts(lot)
+        sh.dim(e[2], e[3], 4.5, f"{c.cuts[k + 1] - c.cuts[k]:.2f}", 2.8, "#006644")
+        sh.dim(e[3], e[0], 4.5, f"{c.depths[k]:.2f}", 2.8, "#006644")
+    sh.scalebar(14, sh.oy + sh.plan_h + 30 * sh.p.ts)
+    return sh
+
+
+def schedule(sh: Sheet, option: str, base_plot: G.Plot | None = None):
+    """base_plot: the unstretched plot, when this carve sits on a fitted one."""
+    c, m = sh.c, sh.c.plot
+    t = c.tally()
+    sh.open()
+    _title(sh, f"TS 11/14/18 — OPTION {option} — SCHEDULE",
+           f"lots {t['lots'] / t['plot'] * 100:.1f}% · road {t['road'] / t['plot'] * 100:.1f}%"
+           f" · wastage {t['waste'] / t['plot'] * 100:.1f}%")
+    sh.txt(14, 18.5, "perpendicular down from D → P · perpendicular up from B → Q · "
+           + ("rear line steps down west→east" if c.stepped else "three identical rectangles")
+           + f" · road {c.road_w:.2f} ft ⟂ at its narrowest, opening to {c.road_west:.2f} ft",
+           3.0, "start", fill="#333")
+    a = m.corner_angles
+    sh.txt(14, 24, f"sides {m.north:.2f} / {m.east:.2f} / {m.south:.2f} / {m.west:.2f} m · "
+           f"closure = {m.area_m2:.1f} m² = {m.area_ft2:,.0f} ft² = {m.area_ft2 / G.CENT:.2f} "
+           f"cents · W1 = west corner triangle A-P-D, W2 = east corner triangle B-Q-C",
+           3.0, "start", fill="#666")
+    sh.txt(14, 29.5, f"closure: {m.derivation}", 3.0, "start", fill="#666")
+    sh.txt(14, 34.5, f"corner angles A {a[0]:.2f}° B {a[1]:.2f}° C {a[2]:.2f}° D {a[3]:.2f}° · "
+           f"A+C = {a[0] + a[2]:.2f}° so the quadrilateral is "
+           f"{'CYCLIC' if m.is_cyclic else 'NOT cyclic'} — Brahmagupta's "
+           f"{m.max_area_m2:.1f} m² is out of reach for this shape · "
+           f"diagonals AC {m.diagonals_m['AC']:.2f} m, BD {m.diagonals_m['BD']:.2f} m",
+           3.0, "start", fill="#666")
+
+    trio = lambda a: [f"{a:,.0f}", f"{a / G.CENT:.2f}", f"{a / G.FT2:.1f}"]
+    rows = []
+    for k, pc in enumerate(c.lot_pieces):
+        w, d = c.cuts[k + 1] - c.cuts[k], c.depths[k]
+        rows.append(([pc.name, f"{w:.2f} × {d:.2f} × {w:.2f} × {d:.2f}", pc.why]
+                     + trio(pc.area), True))
+    for k, b in enumerate(c.road_bays):
+        rows.append(([f"{b.name} (over Lot {k + 1})", " × ".join(f"{ln:.2f}" for _, _, ln in G.sides(G.tidy(b.poly))),
+                      b.why] + trio(b.area), False))
+    rows.append((["LOTS + ROAD", "", ""] + trio(t["lots"] + t["road"]), True))
+    rows.append(([" "] * 6, False))
+    for pc in c.offcut_pieces:
+        rows.append(([pc.name, " × ".join(f"{ln:.2f}" for _, _, ln in G.sides(pc.poly)),
+                      pc.why] + trio(pc.area), False))
+    rows.append((["WASTAGE", "", ""] + trio(t["waste"]), True))
+    y = sh.table(14, sh.p.w - 28, 44, "SCHEDULE — every side length in feet, every area "
+                 "from its own arithmetic", rows, ["TOTAL", "", ""] + trio(t["total"]),
+                 fs=1.25) + 6
+    sh.txt(14, y, f"TALLY   {t['lots'] + t['road']:,.0f} (lots + road)  +  {t['waste']:,.0f} "
+           f"(wastage)  =  {t['total']:,.0f} ft²  =  {t['total'] / G.CENT:.2f} cents  =  "
+           f"{t['total'] / G.FT2:.1f} m²  =  the whole plot", 3.8, "start", weight="bold")
+    y += 6
+
+    if base_plot is not None:
+        k = m.north / base_plot.north
+        sh.txt(14, y + 2, f"SIDES STRETCHED {(k - 1) * 100:.2f}% from the FMB's "
+               f"{base_plot.north:.2f} / {base_plot.east:.2f} / {base_plot.south:.2f} / "
+               f"{base_plot.west:.2f} m so the closure equals the REGISTERED "
+               f"{m.registered:.0f} m² exactly.", 3.2, "start", fill="#a00")
+        sh.txt(14, y + 7, f"Shape and every angle unchanged: each length ×{k:.5f}, each area "
+               f"×{k ** 2:.4f}. Verify on the ground before relying on it.", 3.2, "start",
+               fill="#a00")
+    else:
+        pro = m.register_factor
+        sh.txt(14, y + 2, f"REGISTERED EXTENT is {m.registered:.0f} m² "
+               f"({m.registered * G.FT2:,.0f} ft² / {m.registered * G.FT2 / G.CENT:.2f} cents) "
+               f"— {m.registered - m.area_m2:.1f} m² more than these four sides can close "
+               f"(absolute maximum {m.max_area_m2:.1f} m²).", 3.2, "start", fill="#a00")
+        sh.txt(14, y + 7, f"To price on the register multiply every area above by {pro:.4f}: "
+               f"lot = {c.lot_area * pro:,.0f} ft² = {c.lot_area * pro / G.CENT:.2f} cents. "
+               f"The fitted-sides option does this by stretching the boundary instead.",
+               3.2, "start", fill="#a00")
+    return sh
+
+
+def massing(sh: Sheet, m, title="MASSING — road, rectangle, triangles"):
+    """One page: the plot, the slanted road, the big rectangle, the three
+    triangles, and the arithmetic that adds them back to the whole."""
+    A, B, C, D = m.plot.corners
+    sh.c = m
+    sh.open()
+    _title(sh, "TS 11/14/18 · Ward-16 Thallakulam · Madurai North",
+           f"scale 1:{sh.p.denom} — print at 100% on {sh.p.name}", title,
+           "north up · all figures in feet")
+
+    fills = {"Road": ("#e9e9e9", "#9e9e9e"), "Rectangle": ("#d8f3f8", "#00b8d4"),
+             "T1 under the road": ("#fdf0d5", "#c98a1e")}
+    for pc in m.pieces:
+        f, st = fills.get(pc.name, ("#f6dcdc", "#8b2f2f"))
+        sh.path(pc.poly, f, st, 0.5)
+    sh.path(m.plot.quad, "none", "#000", 1.0)
+    for a, b in ((m.at(m.x_west, 0), m.F), (B, m.at(m.base, m.depth))):
+        sh.line(a, b, "#a00", 0.7)          # the two 90 deg lines off the south boundary
+
+    for pc in m.pieces:
+        cx, cy = sh.px(pc.poly.representative_point().coords[0])
+        big = pc.name in ("Road", "Rectangle")
+        tag = pc.name.split(" ")[0]
+        # A sliver is narrower than its own caption: park it clear of the drawing
+        # and run a leader back to the shape.
+        _, ymin, _, ymax = pc.poly.bounds
+        narrow = (pc.poly.bounds[2] - pc.poly.bounds[0]) * sh.sc < 26
+        if narrow:
+            tx, ty = 20.0, cy + 22
+            sh.line((cx, cy), (tx + 12, ty - 4), "#8b2f2f", 0.22, raw=True)
+            cx, cy = tx + 12, ty
+        sh.txt(cx, cy - (2.0 if big else 0.6), tag, 5.2 if big else 3.8,
+               weight="bold", fill="#111" if big else "#8b2f2f")
+        sh.txt(cx, cy + (4.0 if big else 4.2), pc.why, 3.6 if big else 3.0)
+        sh.txt(cx, cy + (9.0 if big else 8.4),
+               f"{pc.area:,.0f} ft² · {pc.area / G.CENT:.2f} cents", 3.2, fill="#444")
+
+    for nm, pt in (("F", m.F), ("E", m.E)):
+        cx, cy = sh.px(pt)
+        sh.out.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="1.1" fill="#a00"/>')
+        sh.txt(cx + 4, cy + 1.2, nm, 3.6, fill="#a00", weight="bold")
+    for nm, pt in zip("ABCD", m.plot.corners):
+        cx, cy = sh.px(pt)
+        sh.txt(cx + (-4.5 if nm in "AD" else 4.5), cy + (4 if nm in "AB" else -2),
+               nm, 3.8, weight="bold")
+
+    side = lambda n, x: f"{n}  {x * G.M2FT:.2f}"
+    p = m.plot
+    sh.dim(D, C, -12, side("north", p.north), 3.2)
+    sh.dim(B, A, -19, side("south", p.south), 3.2)
+    sh.dim(C, B, -13, side("east", p.east), 3.2)
+    sh.dim(A, D, -11, side("west", p.west), 3.2)
+    r = G.verts(m.rect)
+    sh.dim(r[2], r[3], 4.5, f"rectangle {m.width:.2f}", 2.9, "#006644")
+    sh.dim(r[3], r[0], 4.5, f"{m.depth:.2f} deep", 2.9, "#006644")
+    sh.dim(m.at(m.x_west, m.depth), m.F, 5.5,
+           f"T1 {m.inner(m.x_west) - m.depth:.2f}", 2.8, "#c98a1e")
+    sh.dim(m.at(m.base * 0.24, m.inner(m.base * 0.24)),
+           m.at(m.base * 0.24, m.height(m.base * 0.24)), 0,
+           f"road {m.road_w:.2f} ⟂", 2.8, "#666")
+    sh.dim(m.at(m.x_west, 0), A, -11, f"{math.dist(A, m.at(m.x_west, 0)):.2f}", 2.8, "#8b2f2f")
+
+    trio = lambda a: [f"{a:,.0f}", f"{a / G.CENT:.2f}", f"{a / G.FT2:.1f}"]
+    rows = [([pc.name, " × ".join(f"{ln:.2f}" for _, _, ln in G.sides(G.tidy(pc.poly))),
+              pc.why] + trio(pc.area), pc.name == "Rectangle") for pc in m.pieces]
+    y = sh.table(14, sh.p.w - 28, sh.oy + sh.plan_h + 30 * sh.p.ts,
+                 f"SCHEDULE — {m.road_w:.0f} ft road, north boundary slants {m.slant:.2f}°",
+                 rows, ["TOTAL", "", ""] + trio(m.plot.area_ft2), fs=1.15) + 5
+    sh.txt(14, y, f"TALLY   road {m.road.area:,.0f}  +  rectangle {m.rect.area:,.0f}  +  "
+           f"triangles {m.t1.area + m.west.area + m.east.area:,.0f}  =  "
+           f"{m.plot.area_ft2:,.0f} ft²  =  {m.plot.area_ft2 / G.CENT:.2f} cents  =  "
+           f"{m.plot.area_m2:.1f} m²  =  the whole plot", 3.6, "start", weight="bold")
+    sh.scalebar(14, y + 11)
+    return sh

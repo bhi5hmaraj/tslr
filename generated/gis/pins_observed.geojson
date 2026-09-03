@@ -1,0 +1,75 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::32644"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "A",
+    "lat": 9.953269744086384,
+    "lon": 78.158491063731,
+    "residual_m": 1.08
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188418.06926456612,
+     1101582.0972453558
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "B",
+    "lat": 9.953243409058897,
+    "lon": 78.15905176051328,
+    "residual_m": 0.85
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188479.57446404628,
+     1101578.6543419817
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "C",
+    "lat": 9.953420578188025,
+    "lon": 78.1591776619198,
+    "residual_m": 0.84
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188493.55894156307,
+     1101598.1470368288
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "name": "D",
+    "lat": 9.953529122902225,
+    "lon": 78.15853275505997,
+    "residual_m": 0.49
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     188422.89074080624,
+     1101610.769163184
+    ]
+   }
+  }
+ ]
+}
