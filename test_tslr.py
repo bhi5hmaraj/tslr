@@ -94,6 +94,45 @@ def test_fitted_sides_close_on_the_register():
     assert abs(brahmagupta(*f.sides_m) / brahmagupta(*FMB.sides_m) - k ** 2) < 1e-6
 
 
+def test_no_orientation_beats_our_block_by_much():
+    """The v8 overlay fits far more identical lots than our massing does. Either
+    it is wrong or we are under-optimising, and the difference is money. Search
+    every orientation and see."""
+    from tslr.geometry import Massing
+    from tslr.optimize_lot import best_block, buildable
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    region, _ = buildable(site, 20.0)
+    ours = Massing(site, 20.0).rect.area
+    best = best_block(site, 20.0, n=3)
+    assert ours < best.rect.area < region.area, (ours, best.rect.area, region.area)
+    # turning the block to lie along the road is worth something, but little
+    assert best.rect.area / ours < 1.05, best.rect.area / ours
+    # and the winner is the one squared to the road, which is why it wins
+    assert best.frontage > 0.9 * best.width, (best.frontage, best.width)
+
+
+def test_v8s_yield_needs_a_road_you_cannot_drive():
+    """v8 claims 3 x 63.6 x 75.0 = 14,310 ft2 of identical lots. Find the road
+    width that allows it, over every orientation, and the claim answers itself."""
+    from tslr.optimize_lot import best_block
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    lo, hi = 1.0, 20.0
+    for _ in range(24):
+        mid = (lo + hi) / 2
+        lo, hi = (lo, mid) if best_block(site, mid, n=3, coarse=4.0).rect.area < 14245 \
+            else (mid, hi)
+    assert 3.0 < (lo + hi) / 2 < 7.0, (lo + hi) / 2
+
+
+def test_a_block_that_leaves_the_land_is_refused():
+    """Block audits itself, so hand it a rectangle that overruns the road."""
+    from tslr.optimize_lot import Block
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    A, B, C, D = site.corners
+    with pytest.raises(AssertionError, match="leaves the buildable land"):
+        Block(site, 20.0, [A, B, C, D], 0.0, 3)
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

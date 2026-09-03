@@ -3,6 +3,7 @@
     python -m tslr                       # A4, all three options
     python -m tslr --paper A3 --out generated/plan.pdf
     python -m tslr --sides 72.60 25 63.20 30 --road 20
+    python -m tslr --optimize            # best block of identical lots, per road width
     python -m tslr --gis                 # + GeoPackage, .qgz and the map overlay
     python -m tslr --html                # + site/index.html, the interactive viewer
 
@@ -18,7 +19,7 @@ import tempfile
 from pathlib import Path
 
 from . import CENT, Carve, Plot, Sheet, pages
-from .geometry import diagonal_for_area, side_for_area
+from .geometry import Massing, diagonal_for_area, side_for_area
 from .sheet import A3, A4
 
 PAPERS = {"A3": A3, "A4": A4}
@@ -70,6 +71,27 @@ def summary(plot: Plot, road: float):
     return "\n".join(lines)
 
 
+def optimise(plot: Plot, road: float, lots: int):
+    """Is our construction leaving land on the table? Search every orientation."""
+    from .optimize_lot import best_block, buildable
+    region, _ = buildable(plot, road)
+    ours = Massing(plot, road).rect
+    lines = [f"buildable after a {road:.0f} ft road: {region.area:,.0f} ft2 "
+             f"-- no set of lots can beat this",
+             f"  ours, squared to the south boundary  {ours.area:9,.0f} ft2 "
+             f"{ours.area / plot.area_ft2:6.1%}"]
+    b = best_block(plot, road, n=lots)
+    lines.append(f"  best over every orientation          {b.rect.area:9,.0f} ft2 "
+                 f"{b.rect.area / plot.area_ft2:6.1%}  turned {b.theta:+.2f} deg")
+    lines.append(f"  {b}")
+    lines.append(f"{'road ft':>9}{'block ft2':>12}{'% plot':>9}{'each ft2':>10}{'cents':>8}")
+    for w in (5, 10, 15, 20, 25, 30):
+        c = best_block(plot, float(w), n=lots, coarse=2.0)
+        lines.append(f"{w:>9}{c.rect.area:>12,.0f}{c.rect.area / plot.area_ft2:>9.1%}"
+                     f"{c.lot_area:>10,.0f}{c.lot_area / CENT:>8.2f}")
+    return "\n".join(lines)
+
+
 def gis(plot, site, out_dir: Path, road: float):
     """GeoPackage + QGIS project + a browser overlay, all georeferenced."""
     from .gis import Georef, overlay_js, write_geojson
@@ -117,6 +139,9 @@ def main(argv=None):
                     help="also write the GeoPackage, QGIS project and map overlay")
     ap.add_argument("--html", action="store_true",
                     help="also write the local interactive massing viewer")
+    ap.add_argument("--optimize", action="store_true",
+                    help="search every orientation for the best block of identical lots")
+    ap.add_argument("--lots", type=int, default=3, help="lots in that block (default 3)")
     a = ap.parse_args(argv)
 
     site = None
@@ -129,6 +154,8 @@ def main(argv=None):
         plot = Plot(*a.sides, registered=a.registered,
                     diagonal=a.diagonal, diagonal_ends=a.ends)
     print(summary(plot, a.road))
+    if a.optimize:
+        print(optimise(plot, a.road, a.lots))
     print("wrote", build(plot, a.out, PAPERS[a.paper], a.road))
     if a.html:
         from .html import build as build_html

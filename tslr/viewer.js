@@ -443,15 +443,15 @@ const Render = {
                            [c[0] + u[0] * half, c[1] + u[1] * half]];
       // A leader ties a label back to its segment, so it is free to move much
       // further than it could when its position alone had to identify it.
-      let mid = null;
+      let mid = null, foot = null, off = 0;
       outer:
       for (const dd of half * 2 > len ? [] : [9, 16, 24, 34, 46, 60, -12, -22, -34, -48])
         for (const f of [0.5, 0.34, 0.66, 0.2, 0.8, 0.42, 0.58, 0.1, 0.9]) {
-          const c = [pa[0] + (pb[0] - pa[0]) * f + n[0] * dd,
-                     pa[1] + (pb[1] - pa[1]) * f + n[1] * dd];
+          const on = [pa[0] + (pb[0] - pa[0]) * f, pa[1] + (pb[1] - pa[1]) * f];
+          const c = [on[0] + n[0] * dd, on[1] + n[1] * dd];
           const box = spread(c);
           if (!placed.some(q => Geom.segDist(box, q) < 7 + (q[2] ?? 7))) {
-            mid = c; break outer;
+            mid = c; foot = on; off = Math.abs(dd); break outer;
           }
         }
       const lead = (from, to) =>
@@ -461,7 +461,11 @@ const Render = {
                  class="hit" data-seg="${id}"/>`);
       if (mid) {
         placed.push([...spread(mid), 7]);
-        if (Math.hypot(mid[0] - cm[0], mid[1] - cm[1]) > 17) lead(mid, cm);
+        // Point at the nearest bit of the segment, not its midpoint, and only
+        // once the label has actually left the line. A label slid along its own
+        // segment is already sitting on it, and an arrow from there to the
+        // midpoint just draws a line across the middle of the drawing.
+        if (off > 15) lead(mid, foot);
         out.push(`<text x="${mid[0]}" y="${mid[1] + 4}" class="side" data-seg="${id}"
                    transform="rotate(${ang} ${mid[0]} ${mid[1]})">${label}</text>`);
         continue;
