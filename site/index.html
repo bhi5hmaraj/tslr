@@ -95,6 +95,9 @@ body.fanning .sub-opt { opacity: 1; }
 body:not(.fanning) .sub-opt input { pointer-events: none; }
 .bld { color: #7b1fa2; font-weight: 600; }
 .ent { color: #00695c; }
+/* the turning ray carried on to the north boundary, and the wedge past it */
+.ray { stroke: #616161; stroke-width: 1.4; stroke-dasharray: 4 3; fill: none; }
+.wedge { fill: none; stroke: #616161; stroke-width: 1.2; stroke-dasharray: 2 3; }
 /* the panel sits under the drawing, its two halves side by side */
 body { flex-direction: column; }
 #left { flex: 1 1 auto; min-height: 0; }
@@ -270,6 +273,10 @@ const I18N = {
       `along the road from E, then ${d} ft square down to the east boundary. ` +
       `That right triangle is ${a} ft² (${c} cents) of common ground, taken ` +
       `off the last lot before the others are cut.`,
+    wedgeNote: (yc, ly, a, c) => `Carried on across the road the same ray meets ` +
+      `the north boundary at Y, so YC = ${yc} ft and LY = ${ly} ft. Everything ` +
+      `east of the ray is the right triangle LYC: ${a} ft² (${c} cents), the ` +
+      `dead end of the layout.`,
     noFront: "no road frontage — reached across the strip in front, which is " +
              "therefore common, not private",
     buildable: "buildable",
@@ -380,6 +387,9 @@ const I18N = {
     headNote: (l, d, a, c) => `முட்டுச்சந்தில் வாகனம் திரும்ப E இலிருந்து ${l} அடி ` +
       `சாலை வழியே, பின் ${d} அடி செங்குத்தாக கிழக்கு எல்லை வரை தேவை. அந்த ` +
       `செங்கோண முக்கோணம் ${a} ச.அடி (${c} சென்ட்) பொது இடம்.`,
+    wedgeNote: (yc, ly, a, c) => `அதே கதிர் சாலையைக் கடந்து வடக்கு எல்லையை Y இல் ` +
+      `சந்திக்கிறது: YC = ${yc} அடி, LY = ${ly} அடி. கதிருக்குக் கிழக்கே உள்ள ` +
+      `அனைத்தும் LYC செங்கோண முக்கோணம்: ${a} ச.அடி (${c} சென்ட்).`,
     noFront: "சாலை முகப்பு இல்லை — முன்பகுதி வழியாகச் செல்ல வேண்டும், " +
              "எனவே அது பொது இடம்",
     buildable: "கட்டிடத்திற்கு",
@@ -829,6 +839,10 @@ const Geom = {
     const headW = head > 0 ? Geom.along(E, F, head) : null;
     const headV = headW ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), B, E) : null;
     const headPoly = headW ? [headW, E, headV] : null;
+    // the same 90 deg ray carried the other way, across the road to the north
+    // boundary. DC runs parallel to the road's inner edge, so MY is the road
+    // width and the wedge beyond the ray, L-Y-C, is a right triangle at Y.
+    const headY = headW ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), D, C) : null;
     const region = headW ? [A, B, headV, headW, F] : [A, B, E, F];
     // reserving the head changes what rectangle fits, so re-inscribe it
     const block = turn || headW ? Geom.inscribe(region, turn).box : rect;
@@ -876,7 +890,8 @@ const Geom = {
     const vkey = q => q.map(v => v.toFixed(2)).join();
     const reg = new Map([[vkey(A), "A"], [vkey(B), "B"], [vkey(C), "C"], [vkey(D), "D"],
                          [vkey(F), "F"], [vkey(E), "E"]]);
-    const spare = [..."GHJKLMNPQRSTUVWXYZ"];
+    const spare = [..."GHJKLMNPQRSTUVWXZ"];        // Y is reserved for the ray
+    if (headY) reg.set(vkey(headY), "Y");
     for (const p of pieces)
       for (const q of p.poly)
         if (!reg.has(vkey(q))) reg.set(vkey(q), spare.shift() || "?");
@@ -898,7 +913,8 @@ const Geom = {
     const plot = Geom.shoelace(corners);
     return { A, B, C, D, P, Q, F, E, at, height, inner, base, xW, width, depth,
              hW, hE, slant: slant * 180 / Math.PI, roadW, rect: block, turn, fan, equalise,
-             head, headPoly,
+             head, headPoly, headY,
+             wedge: headY ? Math.abs(Geom.shoelace([headV, headY, C])) : 0,
              region, lots, lotW, blockD,
              pieces, plot, nameOf,
              allVertices: [...reg.keys()].map(kk => kk.split(",").map(Number)),
@@ -1035,6 +1051,11 @@ const Render = {
       out.push(`<path class="piece" data-key="${p.key}" d="${path(p.poly)}"
                  fill="${f}" stroke="${s}" stroke-width="1.5"/>`);
     }
+    if (m.headY) {
+      const [a2, b2] = [X(m.headPoly[0]), X(m.headY)];
+      out.push(`<line x1="${a2[0]}" y1="${a2[1]}" x2="${b2[0]}" y2="${b2[1]}" class="ray"/>`);
+      out.push(`<path class="wedge" d="${path([m.headPoly[2], m.headY, m.C])}"/>`);
+    }
     for (const p of m.pieces)
       if (p.build)
         out.push(`<path class="build" data-key="${p.key}" d="${path(p.build)}"/>`);
@@ -1112,6 +1133,10 @@ const Render = {
     if (m.w20.hit)
       items.push({ a: m.J, b: m.w20.hit, label: spanTxt(m.J, m.w20.hit) },
                  { a: m.w20.hit, b: m.H, label: spanTxt(m.w20.hit, m.H) });
+    if (m.headY)
+      items.push({ a: m.headPoly[0], b: m.headY, label: spanTxt(m.headPoly[0], m.headY) },
+                 { a: m.headY, b: m.C, label: spanTxt(m.headY, m.C) },
+                 { a: m.headPoly[2], b: m.headY, label: spanTxt(m.headPoly[2], m.headY) });
     Render.placeLabels(out, items, X, ctr, px0, px1,
       [...fixed, ...[...verts.values()].map(v => [X(v), X(v), 10])], box.w);
 
@@ -1133,6 +1158,7 @@ const Render = {
 
     // a badge on every vertex, the 20 ft crossing included
     if (m.w20.hit) verts.set("w20", m.w20.hit);
+    if (m.headY) verts.set("headY", m.headY);
     for (const v of verts.values()) {
       const [x, y] = X(v), nm = m.nameOf(v);
       const kind = "ABCD".includes(nm) ? "corner"
@@ -1152,7 +1178,10 @@ const Render = {
     const hd = m.headPoly && m.pieces.find(p => p.key === "head");
     const headSays = hd ? `<p class="note">${T("headNote", fmt.len(m.head, metric),
       fmt.len(Geom.dist(m.headPoly[0], m.headPoly[2]), metric),
-      fmt.ft2(hd.area), fmt.cents(hd.area))}</p>` : "";
+      fmt.ft2(hd.area), fmt.cents(hd.area))}</p>
+      <p class="note">${T("wedgeNote", fmt.len(Geom.dist(m.headY, m.C), metric),
+        fmt.len(Geom.dist(m.headPoly[2], m.headY), metric),
+        fmt.ft2(m.wedge), fmt.cents(m.wedge))}</p>` : "";
     if (m.fan) {
       const flat = Geom.construct([m.A, m.B, m.C, m.D], m.roadW, m.lots, 0, false);
       const each = m.pieces.filter(p => p.key === "rect" || p.key.startsWith("lot"));

@@ -258,6 +258,38 @@ def test_the_turning_head_comes_off_the_last_lot():
         Fan(site, 20.0, 3, head=limit + 1)
 
 
+def test_the_turning_ray_carried_on_cuts_a_right_triangle_at_the_dead_end():
+    """The 90 deg ray does not stop at the road. Carried on it meets the north
+    boundary at Y, and everything east of it is the wedge L-Y-C."""
+    import math
+    from shapely.geometry import LineString, Polygon
+    from tslr.geometry import Massing
+    from tslr.optimize_lot import head_ends
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    _, _, C, D = site.corners
+    m = Massing(site, 20.0)
+    M, L = head_ends(site, 20.0, 20.0)
+    n = (-(m.F[1] - m.E[1]), m.F[0] - m.E[0])
+    k = math.hypot(*n)
+    n = (n[0] / k, n[1] / k)
+    ray = LineString([(M[0] - n[0] * 500, M[1] - n[1] * 500),
+                      (M[0] + n[0] * 500, M[1] + n[1] * 500)])
+    Y = ray.intersection(LineString([D, C])).coords[0]
+
+    # DC runs parallel to the road's inner edge, so MY is exactly the road width
+    assert abs(math.dist(M, Y) - 20.0) < 1e-6, math.dist(M, Y)
+    assert abs(math.dist(L, Y) - math.dist(L, M) - 20.0) < 1e-6   # L, M, Y in line
+    # which makes LYC right-angled at Y
+    v1 = (L[0] - Y[0], L[1] - Y[1])
+    v2 = (C[0] - Y[0], C[1] - Y[1])
+    assert abs(v1[0] * v2[0] + v1[1] * v2[1]) < 1e-6
+    wedge = Polygon([L, Y, C])
+    assert abs(wedge.area - math.dist(Y, C) * math.dist(L, Y) / 2) < 0.01
+    # and it is exactly the road past the ray plus the turning head
+    assert abs(wedge.area - Polygon([M, Y, C, m.E]).area - Polygon([M, m.E, L]).area) < 0.01
+    assert 925 < wedge.area < 940, wedge.area
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""
