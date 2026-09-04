@@ -94,6 +94,7 @@ body.fanning #turn, body.fanning #bestturn { pointer-events: none; }
 body.fanning .sub-opt { opacity: 1; }
 body:not(.fanning) .sub-opt input { pointer-events: none; }
 .bld { color: #7b1fa2; font-weight: 600; }
+.bey { color: #616161; font-weight: 600; }
 .ent { color: #00695c; }
 /* the turning ray carried on to the north boundary, and the wedge past it */
 .ray { stroke: #616161; stroke-width: 1.4; stroke-dasharray: 4 3; fill: none; }
@@ -191,6 +192,43 @@ body.no-panel #right { display: none; }
   #panel { width: 34px; height: 34px; font-size: 17px; }
   body.no-panel #plan { height: 88vh; }
 }
+
+
+/* ---------------------------------------------------------------- printing */
+/* Held while the page is being prepared for paper: the drawing takes the
+   proportions of a landscape sheet so its viewBox is computed for that, not
+   for whatever shape the window happens to be. */
+body.printing #plan { flex: none; }
+.sbar { stroke: #333; stroke-width: 1; }
+/* text-anchor must be set here, not as an attribute: the `text` rule above
+   sets middle and would win, hanging the caption off the left of the sheet */
+.sbartxt { font-size: 11px; fill: #333; font-weight: 600; text-anchor: start; }
+#legend { display: none; }
+body.printing #legend { display: block; }
+#legend h3 { font-size: 10px; margin: 8px 0 3px; color: #555; font-weight: 600; }
+#legend ul { columns: 7; column-gap: 10px; margin: 0; padding: 0; list-style: none; }
+#legend li { font-size: 8.5px; line-height: 1.55; break-inside: avoid;
+             font-variant-numeric: tabular-nums; }
+body.printing #grip, body.printing #zoom { visibility: hidden; }
+
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body { display: block; height: auto; overflow: visible; }
+  #grip, #zoom, #panel, #lang, #ctrls, #check, #stepper { display: none !important; }
+  #left { height: auto; padding: 0; }
+  /* the viewBox holds the aspect, so width alone is enough */
+  /* the mm size set on the element is the whole point, so leave it alone */
+  #plan { flex: none; }
+  #right { height: auto !important; display: block; border: none; padding: 0;
+           overflow: visible; }
+  #out { width: 100%; }
+  header h1 { font-size: 15px; }
+  header .meta { font-size: 10px; }
+  table { font-size: 9.5px; margin-top: 10px; }
+  .note { font-size: 9.5px; padding: 5px 7px; margin-top: 8px; }
+  tr, .note, footer { break-inside: avoid; }
+  footer { font-size: 8.5px; }
+}
 </style>
 <div id="left">
   <header>
@@ -200,9 +238,10 @@ body.no-panel #right { display: none; }
   </header>
   <button id="panel" title="hide the panel"></button>
   <svg id="plan"></svg>
+  <div id="legend"></div>
   <div id="tip" hidden></div>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button
-    ><button id="zin">+</button></div>
+    ><button id="zin">+</button><button id="pdf">PDF</button></div>
 </div>
 <div id="grip" title="drag to resize"></div>
 <div id="right">
@@ -277,6 +316,7 @@ const I18N = {
     fanLabel: "Four-sided lots — no waste at all",
     eqLabel: "Give every lot the same buildable rectangle",
     entrance: "opens onto the road over",
+    beyondRay: "of which, past the ray, serving only the dead end:",
     headLabel: "Turning head at the dead end, back along the road from E",
     headOff: "none", TurningHead: "Turning head",
     headNote: (l, d, a, c) => `A car turning at the dead end needs ${l} ft back ` +
@@ -315,7 +355,9 @@ const I18N = {
     checkEdited: "sides edited — self-check applies to the recorded plot only",
     working: "How each number is got, from the four recorded sides:",
     ofPlot: "of the plot",
-    fit: "fit",
+    fit: "fit", pdfBtn: "PDF",
+    scaleBar: (m2, s) => `100 mm on this sheet = ${m2} m on the ground  (1:${s})`,
+    legendHead: s => `Measurements, feet — drawing at 1:${s}`,
     diagTaped: "Ours was taped on site.",
     diagGuessed: "Ours is <b>not yet taped</b> — it comes from four corners read " +
                  "off satellite imagery, good to about ±1.2 m, which is ±17 m² of " +
@@ -392,6 +434,7 @@ const I18N = {
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
     entrance: "சாலைக்கான நுழைவு அகலம்",
+    beyondRay: "இதில், கதிருக்கு அப்பால், முட்டுச்சந்துக்கு மட்டும்:",
     headLabel: "முட்டுச்சந்தில் வாகனம் திரும்பும் இடம், E இலிருந்து சாலை வழியே",
     headOff: "இல்லை", TurningHead: "திரும்பும் இடம்",
     headNote: (l, d, a, c) => `முட்டுச்சந்தில் வாகனம் திரும்ப E இலிருந்து ${l} அடி ` +
@@ -428,7 +471,9 @@ const I18N = {
     checkEdited: "பக்க அளவுகள் மாற்றப்பட்டன — சுய சரிபார்ப்பு பதிவு அளவுகளுக்கு மட்டுமே",
     working: "பதிவான நான்கு பக்க அளவுகளிலிருந்து ஒவ்வொரு எண்ணும் எப்படி வருகிறது:",
     ofPlot: "நிலத்தில்",
-    fit: "பொருத்து",
+    lots: n => `${n} சம மனைகள்`, metres: "மீட்டர்",
+    scaleBar: (m2, s) => `இத்தாளில் 100 மி.மீ = தரையில் ${m2} மீ  (1:${s})`,
+    legendHead: s => `அளவுகள், அடியில் — வரைபடம் 1:${s}`,
     diagTaped: "நமது அளவு தரையில் நாடாவால் அளக்கப்பட்டது.",
     diagGuessed: "நமது அளவு <b>இன்னும் நாடாவால் அளக்கப்படவில்லை</b> — செயற்கைக்கோள் " +
                  "படத்திலிருந்து படித்த நான்கு மூலைகளிலிருந்து வந்தது, சுமார் ±1.2 மீ " +
@@ -880,7 +925,10 @@ const Geom = {
     });
     const roadPiece = { key: "road", nk: "Road", poly: [F, E, C, D],
       why: `(${Geom.dist(D, C).toFixed(2)} + ${Geom.dist(F, E).toFixed(2)})/2 × ${roadW.toFixed(2)} ⟂`,
-      area: (Geom.dist(D, C) + Geom.dist(F, E)) / 2 * roadW };
+      area: (Geom.dist(D, C) + Geom.dist(F, E)) / 2 * roadW,
+      // past the ray the road reaches no lot, only the dead end
+      beyond: headY ? { poly: [headW, headY, C, E],
+                        area: Math.abs(Geom.shoelace([headW, headY, C, E])) } : null };
     const squared = [
       { key: "t1", nk: "T1 under the road", poly: [at(xW, depth), at(base, depth), F],
         why: `½ × ${width.toFixed(2)} × ${t1h.toFixed(2)}`, area: width * t1h / 2 },
@@ -900,8 +948,12 @@ const Geom = {
     const vkey = q => q.map(v => v.toFixed(2)).join();
     const reg = new Map([[vkey(A), "A"], [vkey(B), "B"], [vkey(C), "C"], [vkey(D), "D"],
                          [vkey(F), "F"], [vkey(E), "E"]]);
-    const spare = [..."GHJKLMNPQRSTUVWXZ"];        // Y is reserved for the ray
-    if (headY) reg.set(vkey(headY), "Y");
+    const spare = [..."GHJKNPQRSTUVWXZ"];   // L, M, Y name the turning head
+    if (headW) {
+      reg.set(vkey(headW), "M");            // back along the road from E
+      reg.set(vkey(headV), "L");            // square down onto the east boundary
+      reg.set(vkey(headY), "Y");            // and on across the road to DC
+    }
     for (const p of pieces)
       for (const q of p.poly)
         if (!reg.has(vkey(q))) reg.set(vkey(q), spare.shift() || "?");
@@ -915,6 +967,8 @@ const Geom = {
       // to be told it has an entrance onto the road
       p.entrance = p.key === "road" || p.key === "head"
                  ? 0 : Geom.entrance(p.poly, F, headW || E);
+      if (p.beyond)
+        p.beyond.spans = p.beyond.poly.map(q => nameOf(q)).join("");
       p.name = p.nk === "lot" ? T("lot", p.ni)
              : p.nk === "offcut" ? T("offcut", p.ni) : T(p.nk);
       p.sides = p.poly.map((q, i) => Geom.dist(q, p.poly[(i + 1) % p.poly.length]));
@@ -1049,9 +1103,13 @@ const Render = {
     return placed;
   },
 
-  plan(m, box, metric) {
+  plan(m, box, metric, legend = false) {
     const all = [m.A, m.B, m.C, m.D];
-    const { k, X } = Render.project(m, box);
+    // On paper the measurements go to a legend, so the drawing needs no room
+    // around it for labels and can be set out at a larger scale.
+    const { k, X } = Render.project(m, box, ...(legend ? Render.pad : []));
+    Render.k = k;
+    Render.legend = [];
     const path = pts => "M " + pts.map(p => X(p).join(",")).join(" L ") + " Z";
     const L = x => fmt.len(x, metric);
     const out = [];
@@ -1147,7 +1205,8 @@ const Render = {
       items.push({ a: m.headPoly[0], b: m.headY, label: spanTxt(m.headPoly[0], m.headY) },
                  { a: m.headY, b: m.C, label: spanTxt(m.headY, m.C) },
                  { a: m.headPoly[2], b: m.headY, label: spanTxt(m.headPoly[2], m.headY) });
-    Render.placeLabels(out, items, X, ctr, px0, px1,
+    if (legend) Render.legend.push(...items.map(i => i.label));
+    else Render.placeLabels(out, items, X, ctr, px0, px1,
       [...fixed, ...[...verts.values()].map(v => [X(v), X(v), 10])], box.w);
 
     // the four recorded boundaries, outside the plot
@@ -1156,6 +1215,7 @@ const Render = {
       (Geom.dist(u, b2) < 0.05 && Geom.dist(v, a2) < 0.05));
     for (const [a2, b2] of [[m.D, m.C], [m.A, m.B], [m.B, m.C], [m.A, m.D]]) {
       if (single([a2, b2])) continue;          // already labelled on the segment
+      if (legend) { Render.legend.push(spanTxt(a2, b2)); continue; }
       const [pa, pb] = [X(a2), X(b2)];
       let ang = Math.atan2(pb[1] - pa[1], pb[0] - pa[0]) * 180 / Math.PI;
       if (ang > 90 || ang < -90) ang += 180;
@@ -1164,6 +1224,19 @@ const Render = {
       mx += away[0] / d * 20; my += away[1] / d * 20;
       out.push(`<text x="${mx}" y="${my}" class="dim"
                  transform="rotate(${ang} ${mx} ${my})">${spanTxt(a2, b2)}</text>`);
+    }
+
+    if (legend && Render.mmpp) {
+      const len = 100 / Render.mmpp;                 // 100 mm on paper, in px
+      const [x0, y0] = [30, box.h - 16];
+      out.push(`<line x1="${x0}" y1="${y0}" x2="${x0 + len}" y2="${y0}" class="sbar"/>`);
+      for (let i = 0; i <= 4; i++)
+        out.push(`<line x1="${x0 + len * i / 4}" y1="${y0 - 4}"
+                   x2="${x0 + len * i / 4}" y2="${y0 + 4}" class="sbar"/>`);
+      // above the bar, not after it: the bar is 100 mm long and the caption is
+      // longer than whatever is left of the sheet beside it
+      out.push(`<text x="${x0}" y="${y0 - 9}" class="sbartxt">${
+        T("scaleBar", (100 * Render.scale / 1000).toFixed(1), Render.scale)}</text>`);
     }
 
     // a badge on every vertex, the 20 ft crossing included
@@ -1222,7 +1295,9 @@ const Render = {
         <td><span class="sw" style="background:${Render.fill(p.key)[0]};
             border-color:${Render.fill(p.key)[1]}"></span>${p.name}</td>
         <td class="why">${p.spans.map((sp, i) => `${sp} ${L(p.sides[i])}`).join(", ")}
-            <br><i>${p.why}</i>${p.build ? `<br><b class="bld">${T("buildable")}
+            <br><i>${p.why}</i>${p.beyond ? `<br><b class="bey">${T("beyondRay")}
+            ${p.beyond.spans} ${fmt.ft2(p.beyond.area)} ft²
+            (${fmt.cents(p.beyond.area)} ${T("thCents")})</b>` : ""}${p.build ? `<br><b class="bld">${T("buildable")}
             ${p.buildWhy} = ${fmt.ft2(p.buildArea)} ft² (${fmt.cents(p.buildArea)} ${T("thCents")})</b>` : ""}
             ${p.key === "road" || p.key === "head" ? "" : p.entrance > 0.05
               ? `<br><span class="ent">${T("entrance")} ${L(p.entrance)}</span>`
@@ -1409,6 +1484,11 @@ function selfCheck(sides) {
                     : T("checkPass", Object.keys(SITE.vectors).length);
 }
 
+// The drawing band inside an A4 landscape sheet's margins, in millimetres.
+// 297 x 210 less an 8 mm margin, keeping 70 mm of the height for the legend
+// and the notes under the drawing.
+const PAPER = { w: 281, h: 124 };
+
 // ---------------------------------------------------------------- UI
 const UI = {
   read() {
@@ -1435,8 +1515,15 @@ const UI = {
       const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan, equalise, head);
       if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
       const svg = $("#plan"), b = svg.getBoundingClientRect();
-      svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
-      svg.innerHTML = Render.plan(m, { w: b.width, h: b.height }, metric);
+      const paper = document.body.classList.contains("printing");
+      // Paper works the other way round from the screen. The screen fits the
+      // drawing to whatever box the window leaves. Paper fixes the box, works
+      // out what scale that box holds, then sets the element in millimetres so
+      // the scale is real -- so the box cannot be read back off the element.
+      const bx = paper ? UI.paperBox(m, svg) : { w: b.width, h: b.height };
+      svg.setAttribute("viewBox", `0 0 ${bx.w} ${bx.h}`);
+      svg.innerHTML = Render.plan(m, bx, metric, paper);
+      if (paper) UI.setLegend();
       $("#sched").innerHTML = Render.turnNote(m, metric) + Render.schedule(m, metric);
       UI.m = m;
       $("#slant").textContent = m.slant.toFixed(2);
@@ -1592,6 +1679,61 @@ const UI = {
 
   // The seam between the drawing and the panel is draggable, so a long
   // schedule and a big drawing do not have to fight over one fixed split.
+  // A drawing is only worth printing if a ruler agrees with it. Pick the
+  // largest standard scale whose sheet still fits A4 landscape, then size the
+  // SVG in millimetres so one foot on the ground is exactly its share of one.
+  // Size the sheet from the plot, not the other way round. A fixed box wastes
+  // whichever dimension the plot does not need, and that waste is what decides
+  // the scale. `k` is pinned so one foot is exactly its share of a millimetre.
+  paperBox(m, svg) {
+    // A vertex badge is 8 px across and PX is px per foot, so 6 ft of margin
+    // clears it. FOOT leaves a strip under the drawing for the check bar.
+    const MAR = 6, FOOT = 10, PX = 4.2;
+    const xs = [m.A, m.B, m.C, m.D].map(p => p[0]);
+    const ys = [m.A, m.B, m.C, m.D].map(p => p[1]);
+    const wf = Math.max(...xs) - Math.min(...xs) + 2 * MAR;
+    const hf = Math.max(...ys) - Math.min(...ys) + 2 * MAR + FOOT;
+    Render.scale = [50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 750, 1000]
+      .find(v => wf * 304.8 / v <= PAPER.w && hf * 304.8 / v <= PAPER.h)
+      || Math.ceil(wf * 304.8 / PAPER.w / 100) * 100;
+    Render.mmpp = 304.8 / (Render.scale * PX);
+    Render.pad = [MAR * PX, MAR * PX];
+    const box = { w: wf * PX, h: hf * PX };
+    svg.style.width = (box.w * Render.mmpp).toFixed(2) + "mm";
+    svg.style.height = (box.h * Render.mmpp).toFixed(2) + "mm";
+    return box;
+  },
+
+  setLegend() {
+    const leg = document.querySelector("#legend");
+    if (!leg) return;
+    leg.innerHTML = `<h3>${T("legendHead", Render.scale)}</h3><ul>` +
+      [...new Set(Render.legend)].sort().map(t => `<li>${t}</li>`).join("") + "</ul>";
+  },
+
+  // No library: the browser already turns a page into a PDF. The drawing is
+  // resized to the paper's proportions and redrawn first, so what prints is
+  // laid out for the page rather than scaled off the screen.
+  toPdf() {
+    const view = UI.view;
+    UI.view = { z: 1, t: [0, 0] };                   // paper is not pan and zoom
+    document.body.classList.add("printing");
+    UI.draw();
+    const done = () => {
+      document.body.classList.remove("printing");
+      const svg = document.querySelector("#plan");
+      svg.style.width = svg.style.height = "";
+      Render.mmpp = 0;
+      UI.view = view;
+      UI.draw();
+    };
+    window.addEventListener("afterprint", done, { once: true });
+    window.print();
+    setTimeout(() => {                       // some browsers never fire afterprint
+      if (document.body.classList.contains("printing")) done();
+    }, 1500);
+  },
+
   wireGrip() {
     const grip = document.querySelector("#grip");
     const right = document.querySelector("#right");
@@ -1641,6 +1783,7 @@ const UI = {
     set("l-head", T("headLabel"));
     set("l-metric", T("metres"));
     set("zfit", T("fit"));
+    set("pdf", T("pdfBtn"));
     set("l-closure", T("closure"));
     set("l-slant", T("slants"));
     const f = document.getElementById("l-foot");
@@ -1652,6 +1795,7 @@ const UI = {
 
   init() {
     UI.wireGrip();
+    document.querySelector("#pdf").onclick = UI.toPdf;
     document.querySelector("#bestturn").onclick = () => {
       const m = Geom.construct(Geom.closure(UI.read()), +document.querySelector("#road").value);
       document.querySelector("#turn").value = Geom.bestTurn(m.region);

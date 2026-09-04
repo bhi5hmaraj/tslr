@@ -30,9 +30,10 @@ TEMPLATE = """<!doctype html>
   </header>
   <button id="panel" title="hide the panel"></button>
   <svg id="plan"></svg>
+  <div id="legend"></div>
   <div id="tip" hidden></div>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button
-    ><button id="zin">+</button></div>
+    ><button id="zin">+</button><button id="pdf">PDF</button></div>
 </div>
 <div id="grip" title="drag to resize"></div>
 <div id="right">
