@@ -99,8 +99,16 @@ body:not(.fanning) .sub-opt input { pointer-events: none; }
 body { flex-direction: column; }
 #left { flex: 1 1 auto; min-height: 0; }
 #right { width: 100%; box-sizing: border-box; border-left: none;
-         border-top: 1px solid #ddd; display: flex; flex-wrap: wrap;
-         align-items: flex-start; gap: 0 28px; max-height: 46vh; }
+         border-top: none; display: flex; flex-wrap: wrap;
+         align-items: flex-start; gap: 0 28px; height: 46vh; flex: none; }
+/* drag the seam to trade drawing height against panel height */
+#grip { flex: none; height: 8px; cursor: row-resize; background: #f2f2f2;
+        border-top: 1px solid #ddd; border-bottom: 1px solid #eee;
+        touch-action: none; }
+#grip::after { content: ""; display: block; width: 46px; height: 2px;
+               margin: 3px auto; background: #bbb; border-radius: 2px; }
+#grip:hover, #grip.drag { background: #e2e2e2; }
+body.no-panel #grip { display: none; }
 #ctrls { flex: 0 1 340px; min-width: 280px; }
 #out { flex: 1 1 420px; min-width: 300px; }
 #ctrls label:first-of-type { margin-top: 0; }
@@ -145,8 +153,9 @@ body.explaining #check { display: none; }\n#lang { float: right; margin-top: -2p
      against the SVG's box, and a collapsed box draws off the bottom */
   #left { min-height: auto; }
   #plan { height: 62vh; min-height: 240px; flex: none; }
-  #right { flex: 1 1 auto; width: 100%; border-left: none;
-           border-top: 1px solid #ddd; overflow: visible; }
+  #right { flex: 1 1 auto; width: 100%; border-left: none; height: auto;
+           border-top: none; overflow: visible; }
+  #grip { display: none; }
   #zoom { bottom: 10px; right: 10px; }
   #zoom button { min-width: 40px; height: 38px; font-size: 18px; }
   table { font-size: 11.5px; }

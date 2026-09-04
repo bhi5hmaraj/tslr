@@ -34,6 +34,7 @@ TEMPLATE = """<!doctype html>
   <div id="zoom"><button id="zout">−</button><button id="zfit"></button
     ><button id="zin">+</button></div>
 </div>
+<div id="grip" title="drag to resize"></div>
 <div id="right">
   <div id="ctrls">
   <button id="lang"></button>

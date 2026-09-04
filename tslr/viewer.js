@@ -1343,6 +1343,41 @@ const UI = {
     UI.draw();
   },
 
+  // The seam between the drawing and the panel is draggable, so a long
+  // schedule and a big drawing do not have to fight over one fixed split.
+  wireGrip() {
+    const grip = document.querySelector("#grip");
+    const right = document.querySelector("#right");
+    if (!grip || !right) return;
+    const setH = h => {
+      right.style.height =
+        Math.max(60, Math.min(window.innerHeight - 160, h)) + "px";
+    };
+    const saved = +localStorage.getItem("tslr-panel-h");
+    if (saved) setH(saved);
+    let queued = false;
+    grip.addEventListener("pointerdown", e => {
+      grip.classList.add("drag");
+      try { grip.setPointerCapture(e.pointerId); } catch (err) { /* fine */ }
+      const move = ev => {
+        setH(window.innerHeight - ev.clientY);
+        if (queued) return;
+        queued = true;                       // one redraw a frame, not one a pixel
+        requestAnimationFrame(() => { queued = false; UI.draw(); });
+      };
+      const up = () => {
+        grip.classList.remove("drag");
+        localStorage.setItem("tslr-panel-h", parseInt(right.style.height, 10));
+        grip.removeEventListener("pointermove", move);
+        grip.removeEventListener("pointerup", up);
+        UI.draw();
+      };
+      grip.addEventListener("pointermove", move);
+      grip.addEventListener("pointerup", up);
+      e.preventDefault();
+    });
+  },
+
   applyLang() {
     const set = (id, txt) => { const e = document.getElementById(id);
       if (e) e.textContent = txt; };
@@ -1369,6 +1404,7 @@ const UI = {
   },
 
   init() {
+    UI.wireGrip();
     document.querySelector("#bestturn").onclick = () => {
       const m = Geom.construct(Geom.closure(UI.read()), +document.querySelector("#road").value);
       document.querySelector("#turn").value = Geom.bestTurn(m.region);
