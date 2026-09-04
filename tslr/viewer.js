@@ -1447,8 +1447,12 @@ const UI = {
   setLegend() {
     const leg = document.querySelector("#legend");
     if (!leg) return;
+    const all = [...new Set(Render.legend)].sort();
     leg.innerHTML = `<h3>${T("legendHead", Render.scale)}</h3><ul>` +
-      [...new Set(Render.legend)].sort().map(t => `<li>${t}</li>`).join("") + "</ul>";
+      all.map(t => `<li>${t}</li>`).join("") + "</ul>";
+    // Hold the legend to six rows however many lengths there are, so it keeps
+    // its place under the drawing instead of pushing itself onto the next page.
+    leg.querySelector("ul").style.columnCount = Math.max(4, Math.ceil(all.length / 6));
   },
 
   // No library: the browser already turns a page into a PDF. The drawing is

@@ -205,9 +205,14 @@ body.printing #plan { flex: none; }
 .sbartxt { font-size: 11px; fill: #333; font-weight: 600; text-anchor: start; }
 #legend { display: none; }
 body.printing #legend { display: block; }
-#legend h3 { font-size: 10px; margin: 8px 0 3px; color: #555; font-weight: 600; }
-#legend ul { columns: 7; column-gap: 10px; margin: 0; padding: 0; list-style: none; }
-#legend li { font-size: 8.5px; line-height: 1.55; break-inside: avoid;
+/* The schedule takes a page of its own, so the sheet under the drawing is the
+   legend's alone. Big enough to read across a table. */
+body.printing #legend { margin-top: 7px; padding: 7px 11px 9px;
+                        border: 1px solid #999; border-radius: 3px; }
+#legend h3 { font-size: 12px; margin: 0 0 5px; color: #333; font-weight: 700; }
+#legend ul { columns: 5; column-gap: 18px; column-rule: 1px solid #e4e4e4;
+             margin: 0; padding: 0; list-style: none; }
+#legend li { font-size: 12px; line-height: 1.85; break-inside: avoid;
              font-variant-numeric: tabular-nums; }
 body.printing #grip, body.printing #zoom { visibility: hidden; }
 
@@ -1752,8 +1757,12 @@ const UI = {
   setLegend() {
     const leg = document.querySelector("#legend");
     if (!leg) return;
+    const all = [...new Set(Render.legend)].sort();
     leg.innerHTML = `<h3>${T("legendHead", Render.scale)}</h3><ul>` +
-      [...new Set(Render.legend)].sort().map(t => `<li>${t}</li>`).join("") + "</ul>";
+      all.map(t => `<li>${t}</li>`).join("") + "</ul>";
+    // Hold the legend to six rows however many lengths there are, so it keeps
+    // its place under the drawing instead of pushing itself onto the next page.
+    leg.querySelector("ul").style.columnCount = Math.max(4, Math.ceil(all.length / 6));
   },
 
   // No library: the browser already turns a page into a PDF. The drawing is
