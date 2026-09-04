@@ -219,6 +219,19 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   #sched .two table { width: 50%; }
   #sched table.tally { margin-top: 6px; }
   .host-badge, [id*="netlify"], [class*="netlify"] { display: none !important; }
+
+  /* Paper does not need flooding with ink. A piece is its outline and its
+     name; the colour that told you what it was is moved into the line.
+     A CSS rule beats the fill attribute the shape carries, so none of this
+     has to be threaded back through the renderer. */
+  .piece { fill: none !important; stroke-width: 1.6; }
+  .lab { stroke: none; }                    /* no white halo to knock out */
+  .side, .dim, .corner, .node, .inner, .w20txt, .angle { stroke: none; }
+  .badge { fill: #fff; }
+  .note { background: none; border-left-width: 2px; padding-left: 6px; }
+  tr.hi td { background: none; }
+  /* the swatch follows: an outline in the piece's own colour, not a block */
+  .sw { background: none !important; border-width: 2px; width: 8px; height: 8px; }
   body { display: block; height: auto; overflow: visible; }
   #grip, #zoom, #panel, #lang, #ctrls, #check, #stepper { display: none !important; }
   #left { height: auto; padding: 0; }
