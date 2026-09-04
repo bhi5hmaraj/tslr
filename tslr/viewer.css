@@ -1,3 +1,4 @@
+:root { --fs: 1; }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.45 -apple-system, Helvetica, Arial, sans-serif;
        color: #111; background: #fff; display: flex; height: 100vh; }
@@ -40,7 +41,8 @@ input[type=range] { width: 100%; }
          min-width: 64px; text-align: right; }
 .row { display: flex; align-items: center; gap: 8px; }
 
-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px;
+        font-size: calc(12px * var(--fs)); }
 th { text-align: left; color: #666; font-weight: 600; border-bottom: 1px solid #ccc;
      padding: 4px 3px; }
 td { padding: 4px 3px; border-bottom: 1px solid #eee; }
@@ -67,7 +69,7 @@ footer { font-size: 11px; color: #777; margin-top: 16px; border-top: 1px solid #
 #bestturn { padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer;
             border: 1px solid #bbb; border-radius: 4px; background: #fff; }
 #bestturn:hover { background: #eee; }
-.note { font-size: 12px; line-height: 1.5; color: #444; background: #f6f6f2;
+.note { font-size: calc(12px * var(--fs)); line-height: 1.5; color: #444; background: #f6f6f2;
         border-left: 3px solid #c8b88a; padding: 7px 9px; margin: 14px 0 0; }
 
 #explain { width: 100%; margin-top: 16px; padding: 7px; font: inherit; font-size: 13px;
@@ -79,7 +81,8 @@ body.explaining #stepper { display: block; }
                   border: 1px solid #bbb; border-radius: 4px; background: #fff; }
 #stepno { font-size: 12px; color: #666; white-space: nowrap; }
 #sched h2 { font-size: 15px; margin: 18px 0 6px; }
-#sched p { font-size: 13px; line-height: 1.5; color: #333; margin: 0 0 8px; }
+#sched p { font-size: calc(13px * var(--fs)); line-height: 1.5; color: #333;
+            margin: 0 0 8px; }
 .hilite { stroke: #d32f2f; stroke-width: 3; }
 body.explaining .grid, body.explaining label[for=road], body.explaining label[for=lots],
 body.explaining label[for=turn] { opacity: .45; }
@@ -206,10 +209,10 @@ body.printing #legend { display: block; }
    legend's alone. Big enough to read across a table. */
 body.printing #legend { margin-top: 7px; padding: 7px 11px 9px;
                         border: 1px solid #999; border-radius: 3px; }
-#legend h3 { font-size: 12px; margin: 0 0 5px; color: #333; font-weight: 700; }
+#legend h3 { font-size: calc(12px * var(--fs)); margin: 0 0 5px; color: #333; font-weight: 700; }
 #legend ul { columns: 5; column-gap: 18px; column-rule: 1px solid #e4e4e4;
              margin: 0; padding: 0; list-style: none; }
-#legend li { font-size: 12px; line-height: 1.85; break-inside: avoid;
+#legend li { font-size: calc(12px * var(--fs)); line-height: 1.85; break-inside: avoid;
              font-variant-numeric: tabular-nums; }
 body.printing #grip, body.printing #zoom { visibility: hidden; }
 
@@ -217,6 +220,8 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   @page { size: A4 landscape; margin: 8mm; }
   /* the schedule gets a sheet of its own, in two columns */
   #out { break-before: page; }
+  /* if it will not sit under the drawing it moves whole, never split */
+  #legend { break-inside: avoid; }
   #sched .two { display: flex; gap: 14px; align-items: flex-start; }
   #sched .two table { width: 50%; }
   #sched table.tally { margin-top: 6px; }
@@ -243,10 +248,10 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   #right { height: auto !important; display: block; border: none; padding: 0;
            overflow: visible; }
   #out { width: 100%; }
-  header h1 { font-size: 15px; }
-  header .meta { font-size: 10px; }
-  table { font-size: 9.5px; margin-top: 10px; }
-  .note { font-size: 9.5px; padding: 5px 7px; margin-top: 8px; }
+  header h1 { font-size: calc(15px * var(--fs)); }
+  header .meta { font-size: calc(10px * var(--fs)); }
+  table { font-size: calc(11px * var(--fs)); margin-top: 10px; }
+  .note { font-size: calc(10.5px * var(--fs)); padding: 5px 7px; margin-top: 8px; }
   tr, .note, footer { break-inside: avoid; }
-  footer { font-size: 8.5px; }
+  footer { font-size: calc(9px * var(--fs)); }
 }

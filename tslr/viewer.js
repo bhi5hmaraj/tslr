@@ -28,6 +28,7 @@ const I18N = {
     turnExplain: "Step-by-step covers the squared construction — set the turn " +
                  "back to 0° to walk through it.",
     fanLabel: "Four-sided lots — no waste at all",
+    fsizeLabel: "Text size, on screen and on paper",
     eqLabel: "Give every lot the same buildable rectangle",
     entrance: "opens onto the road over",
     beyondRay: "of which, past the ray, serving only the dead end:",
@@ -146,6 +147,7 @@ const I18N = {
     turnExplain: "படிப்படியான விளக்கம் நேரான அமைப்புக்கு மட்டுமே — திருப்பத்தை " +
                  "0° ஆக்கினால் அதைப் பார்க்கலாம்.",
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
+    fsizeLabel: "எழுத்து அளவு, திரையிலும் தாளிலும்",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
     entrance: "சாலைக்கான நுழைவு அகலம்",
     beyondRay: "இதில், கதிருக்கு அப்பால், முட்டுச்சந்துக்கு மட்டும்:",
@@ -1250,6 +1252,10 @@ const UI = {
     $("#headv").textContent = head ? fmt.len(head, metric) + (metric ? " m" : " ft")
                                    : T("headOff");
     document.body.classList.toggle("fanning", fan);
+    const fs = +$("#fsize").value;
+    document.documentElement.style.setProperty("--fs", fs / 100);
+    $("#fsizev").textContent = fs + "%";
+    localStorage.setItem("tslr-fsize", fs);
     try {
       const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan, equalise, head);
       if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
@@ -1450,9 +1456,24 @@ const UI = {
     const all = [...new Set(Render.legend)].sort();
     leg.innerHTML = `<h3>${T("legendHead", Render.scale)}</h3><ul>` +
       all.map(t => `<li>${t}</li>`).join("") + "</ul>";
-    // Hold the legend to six rows however many lengths there are, so it keeps
-    // its place under the drawing instead of pushing itself onto the next page.
-    leg.querySelector("ul").style.columnCount = Math.max(4, Math.ceil(all.length / 6));
+    // Widen the legend until it fits under the drawing. Both the number of
+    // lengths and the text size move this, so it is measured rather than
+    // assumed. CSS fixes 1 in at 96 px, so millimetres convert exactly.
+    const PAGE = 194 / 25.4 * 96;              // A4 landscape inside its margins
+    // an SVG element has no offsetHeight, so measure both the same way
+    const high = sel => document.querySelector(sel).getBoundingClientRect().height;
+    const room = PAGE - high("header") - high("#plan");
+    const ul = leg.querySelector("ul");
+    const cols = rows => Math.max(3, Math.ceil(all.length / rows));
+    let fitted = false;
+    for (let rows = 6; rows >= 2 && !fitted; rows--) {
+      ul.style.columnCount = cols(rows);
+      fitted = leg.getBoundingClientRect().height <= room;
+    }
+    // Nothing fits under the drawing at this text size, so the legend takes a
+    // page of its own. Squeezing it into sixteen sparse columns would only
+    // make it harder to read on a page that has room to spare.
+    if (!fitted) ul.style.columnCount = Math.min(6, cols(6));
   },
 
   // No library: the browser already turns a page into a PDF. The drawing is
@@ -1526,6 +1547,7 @@ const UI = {
     set("l-turn", T("turnLabel"));
     set("bestturn", T("bestBtn"));
     set("l-fan", T("fanLabel"));
+    set("l-fsize", T("fsizeLabel"));
     set("l-eqbuild", T("eqLabel"));
     set("l-head", T("headLabel"));
     set("l-metric", T("metres"));
@@ -1541,6 +1563,8 @@ const UI = {
   },
 
   init() {
+    const fs = +localStorage.getItem("tslr-fsize");
+    if (fs) document.querySelector("#fsize").value = fs;
     UI.wireGrip();
     document.querySelector("#pdf").onclick = UI.toPdf;
     document.querySelector("#bestturn").onclick = () => {

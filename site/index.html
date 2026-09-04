@@ -1,7 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>TS 11/14/18 — massing</title>
-<style>* { box-sizing: border-box; }
+<style>:root { --fs: 1; }
+* { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.45 -apple-system, Helvetica, Arial, sans-serif;
        color: #111; background: #fff; display: flex; height: 100vh; }
 #left { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0;
@@ -43,7 +44,8 @@ input[type=range] { width: 100%; }
          min-width: 64px; text-align: right; }
 .row { display: flex; align-items: center; gap: 8px; }
 
-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 12px; }
+table { width: 100%; border-collapse: collapse; margin-top: 16px;
+        font-size: calc(12px * var(--fs)); }
 th { text-align: left; color: #666; font-weight: 600; border-bottom: 1px solid #ccc;
      padding: 4px 3px; }
 td { padding: 4px 3px; border-bottom: 1px solid #eee; }
@@ -70,7 +72,7 @@ footer { font-size: 11px; color: #777; margin-top: 16px; border-top: 1px solid #
 #bestturn { padding: 2px 9px; font: inherit; font-size: 12px; cursor: pointer;
             border: 1px solid #bbb; border-radius: 4px; background: #fff; }
 #bestturn:hover { background: #eee; }
-.note { font-size: 12px; line-height: 1.5; color: #444; background: #f6f6f2;
+.note { font-size: calc(12px * var(--fs)); line-height: 1.5; color: #444; background: #f6f6f2;
         border-left: 3px solid #c8b88a; padding: 7px 9px; margin: 14px 0 0; }
 
 #explain { width: 100%; margin-top: 16px; padding: 7px; font: inherit; font-size: 13px;
@@ -82,7 +84,8 @@ body.explaining #stepper { display: block; }
                   border: 1px solid #bbb; border-radius: 4px; background: #fff; }
 #stepno { font-size: 12px; color: #666; white-space: nowrap; }
 #sched h2 { font-size: 15px; margin: 18px 0 6px; }
-#sched p { font-size: 13px; line-height: 1.5; color: #333; margin: 0 0 8px; }
+#sched p { font-size: calc(13px * var(--fs)); line-height: 1.5; color: #333;
+            margin: 0 0 8px; }
 .hilite { stroke: #d32f2f; stroke-width: 3; }
 body.explaining .grid, body.explaining label[for=road], body.explaining label[for=lots],
 body.explaining label[for=turn] { opacity: .45; }
@@ -209,10 +212,10 @@ body.printing #legend { display: block; }
    legend's alone. Big enough to read across a table. */
 body.printing #legend { margin-top: 7px; padding: 7px 11px 9px;
                         border: 1px solid #999; border-radius: 3px; }
-#legend h3 { font-size: 12px; margin: 0 0 5px; color: #333; font-weight: 700; }
+#legend h3 { font-size: calc(12px * var(--fs)); margin: 0 0 5px; color: #333; font-weight: 700; }
 #legend ul { columns: 5; column-gap: 18px; column-rule: 1px solid #e4e4e4;
              margin: 0; padding: 0; list-style: none; }
-#legend li { font-size: 12px; line-height: 1.85; break-inside: avoid;
+#legend li { font-size: calc(12px * var(--fs)); line-height: 1.85; break-inside: avoid;
              font-variant-numeric: tabular-nums; }
 body.printing #grip, body.printing #zoom { visibility: hidden; }
 
@@ -220,6 +223,8 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   @page { size: A4 landscape; margin: 8mm; }
   /* the schedule gets a sheet of its own, in two columns */
   #out { break-before: page; }
+  /* if it will not sit under the drawing it moves whole, never split */
+  #legend { break-inside: avoid; }
   #sched .two { display: flex; gap: 14px; align-items: flex-start; }
   #sched .two table { width: 50%; }
   #sched table.tally { margin-top: 6px; }
@@ -246,12 +251,12 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   #right { height: auto !important; display: block; border: none; padding: 0;
            overflow: visible; }
   #out { width: 100%; }
-  header h1 { font-size: 15px; }
-  header .meta { font-size: 10px; }
-  table { font-size: 9.5px; margin-top: 10px; }
-  .note { font-size: 9.5px; padding: 5px 7px; margin-top: 8px; }
+  header h1 { font-size: calc(15px * var(--fs)); }
+  header .meta { font-size: calc(10px * var(--fs)); }
+  table { font-size: calc(11px * var(--fs)); margin-top: 10px; }
+  .note { font-size: calc(10.5px * var(--fs)); padding: 5px 7px; margin-top: 8px; }
   tr, .note, footer { break-inside: avoid; }
-  footer { font-size: 8.5px; }
+  footer { font-size: calc(9px * var(--fs)); }
 }
 </style>
 <div id="left">
@@ -291,6 +296,9 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
   <label for="turn" id="l-turn"></label>
   <div class="row"><input id="turn" type="range" min="-45" max="45" step="0.05" value="0">
     <span id="turnv"></span><button id="bestturn"></button></div>
+  <label for="fsize" id="l-fsize"></label>
+  <div class="row"><input id="fsize" type="range" min="80" max="200" step="5" value="100">
+    <span id="fsizev"></span></div>
   <label class="row"><input id="fan" type="checkbox"> <span id="l-fan"></span></label>
   <label class="row sub-opt"><input id="eqbuild" type="checkbox">
     <span id="l-eqbuild"></span></label>
@@ -338,6 +346,7 @@ const I18N = {
     turnExplain: "Step-by-step covers the squared construction — set the turn " +
                  "back to 0° to walk through it.",
     fanLabel: "Four-sided lots — no waste at all",
+    fsizeLabel: "Text size, on screen and on paper",
     eqLabel: "Give every lot the same buildable rectangle",
     entrance: "opens onto the road over",
     beyondRay: "of which, past the ray, serving only the dead end:",
@@ -456,6 +465,7 @@ const I18N = {
     turnExplain: "படிப்படியான விளக்கம் நேரான அமைப்புக்கு மட்டுமே — திருப்பத்தை " +
                  "0° ஆக்கினால் அதைப் பார்க்கலாம்.",
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
+    fsizeLabel: "எழுத்து அளவு, திரையிலும் தாளிலும்",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
     entrance: "சாலைக்கான நுழைவு அகலம்",
     beyondRay: "இதில், கதிருக்கு அப்பால், முட்டுச்சந்துக்கு மட்டும்:",
@@ -1560,6 +1570,10 @@ const UI = {
     $("#headv").textContent = head ? fmt.len(head, metric) + (metric ? " m" : " ft")
                                    : T("headOff");
     document.body.classList.toggle("fanning", fan);
+    const fs = +$("#fsize").value;
+    document.documentElement.style.setProperty("--fs", fs / 100);
+    $("#fsizev").textContent = fs + "%";
+    localStorage.setItem("tslr-fsize", fs);
     try {
       const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan, equalise, head);
       if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
@@ -1760,9 +1774,24 @@ const UI = {
     const all = [...new Set(Render.legend)].sort();
     leg.innerHTML = `<h3>${T("legendHead", Render.scale)}</h3><ul>` +
       all.map(t => `<li>${t}</li>`).join("") + "</ul>";
-    // Hold the legend to six rows however many lengths there are, so it keeps
-    // its place under the drawing instead of pushing itself onto the next page.
-    leg.querySelector("ul").style.columnCount = Math.max(4, Math.ceil(all.length / 6));
+    // Widen the legend until it fits under the drawing. Both the number of
+    // lengths and the text size move this, so it is measured rather than
+    // assumed. CSS fixes 1 in at 96 px, so millimetres convert exactly.
+    const PAGE = 194 / 25.4 * 96;              // A4 landscape inside its margins
+    // an SVG element has no offsetHeight, so measure both the same way
+    const high = sel => document.querySelector(sel).getBoundingClientRect().height;
+    const room = PAGE - high("header") - high("#plan");
+    const ul = leg.querySelector("ul");
+    const cols = rows => Math.max(3, Math.ceil(all.length / rows));
+    let fitted = false;
+    for (let rows = 6; rows >= 2 && !fitted; rows--) {
+      ul.style.columnCount = cols(rows);
+      fitted = leg.getBoundingClientRect().height <= room;
+    }
+    // Nothing fits under the drawing at this text size, so the legend takes a
+    // page of its own. Squeezing it into sixteen sparse columns would only
+    // make it harder to read on a page that has room to spare.
+    if (!fitted) ul.style.columnCount = Math.min(6, cols(6));
   },
 
   // No library: the browser already turns a page into a PDF. The drawing is
@@ -1836,6 +1865,7 @@ const UI = {
     set("l-turn", T("turnLabel"));
     set("bestturn", T("bestBtn"));
     set("l-fan", T("fanLabel"));
+    set("l-fsize", T("fsizeLabel"));
     set("l-eqbuild", T("eqLabel"));
     set("l-head", T("headLabel"));
     set("l-metric", T("metres"));
@@ -1851,6 +1881,8 @@ const UI = {
   },
 
   init() {
+    const fs = +localStorage.getItem("tslr-fsize");
+    if (fs) document.querySelector("#fsize").value = fs;
     UI.wireGrip();
     document.querySelector("#pdf").onclick = UI.toPdf;
     document.querySelector("#bestturn").onclick = () => {

@@ -59,6 +59,9 @@ TEMPLATE = """<!doctype html>
   <label for="turn" id="l-turn"></label>
   <div class="row"><input id="turn" type="range" min="-45" max="45" step="0.05" value="0">
     <span id="turnv"></span><button id="bestturn"></button></div>
+  <label for="fsize" id="l-fsize"></label>
+  <div class="row"><input id="fsize" type="range" min="80" max="200" step="5" value="100">
+    <span id="fsizev"></span></div>
   <label class="row"><input id="fan" type="checkbox"> <span id="l-fan"></span></label>
   <label class="row sub-opt"><input id="eqbuild" type="checkbox">
     <span id="l-eqbuild"></span></label>
