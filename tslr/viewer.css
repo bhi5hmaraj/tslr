@@ -203,6 +203,8 @@ body.printing #plan { flex: none; }
 /* text-anchor must be set here, not as an attribute: the `text` rule above
    sets middle and would win, hanging the caption off the left of the sheet */
 .sbartxt { font-size: 11px; fill: #333; font-weight: 600; text-anchor: start; }
+/* the one bit of drawing text that is prose, so it follows the text knob */
+body.printing .sbartxt { font-size: calc(11px * var(--fs)); }
 #legend { display: none; }
 body.printing #legend { display: block; }
 /* The schedule takes a page of its own, so the sheet under the drawing is the

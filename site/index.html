@@ -206,6 +206,8 @@ body.printing #plan { flex: none; }
 /* text-anchor must be set here, not as an attribute: the `text` rule above
    sets middle and would win, hanging the caption off the left of the sheet */
 .sbartxt { font-size: 11px; fill: #333; font-weight: 600; text-anchor: start; }
+/* the one bit of drawing text that is prose, so it follows the text knob */
+body.printing .sbartxt { font-size: calc(11px * var(--fs)); }
 #legend { display: none; }
 body.printing #legend { display: block; }
 /* The schedule takes a page of its own, so the sheet under the drawing is the
@@ -1547,6 +1549,7 @@ function selfCheck(sides) {
 // 297 x 210 less an 8 mm margin, keeping 70 mm of the height for the legend
 // and the notes under the drawing.
 const PAPER = { w: 281, h: 124 };
+const SCALES = [50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 750, 1000];
 
 // ---------------------------------------------------------------- UI
 const UI = {
@@ -1583,10 +1586,11 @@ const UI = {
       // drawing to whatever box the window leaves. Paper fixes the box, works
       // out what scale that box holds, then sets the element in millimetres so
       // the scale is real -- so the box cannot be read back off the element.
-      const bx = paper ? UI.paperBox(m, svg) : { w: b.width, h: b.height };
-      svg.setAttribute("viewBox", `0 0 ${bx.w} ${bx.h}`);
-      svg.innerHTML = Render.plan(m, bx, metric, paper);
-      if (paper) UI.setLegend();
+      if (paper) UI.sheet(m, svg, metric);
+      else {
+        svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
+        svg.innerHTML = Render.plan(m, { w: b.width, h: b.height }, metric, false);
+      }
       $("#sched").innerHTML =
         Render.turnNote(m, metric) + Render.schedule(m, metric, paper ? 2 : 1);
       UI.m = m;
@@ -1749,7 +1753,7 @@ const UI = {
   // Size the sheet from the plot, not the other way round. A fixed box wastes
   // whichever dimension the plot does not need, and that waste is what decides
   // the scale. `k` is pinned so one foot is exactly its share of a millimetre.
-  paperBox(m, svg) {
+  paperBox(m, svg, force = 0) {
     // A vertex badge is 8 px across and PX is px per foot, so 6 ft of margin
     // clears it. FOOT leaves a strip under the drawing for the check bar.
     const MAR = 6, FOOT = 10, PX = 4.2;
@@ -1757,15 +1761,38 @@ const UI = {
     const ys = [m.A, m.B, m.C, m.D].map(p => p[1]);
     const wf = Math.max(...xs) - Math.min(...xs) + 2 * MAR;
     const hf = Math.max(...ys) - Math.min(...ys) + 2 * MAR + FOOT;
-    Render.scale = [50, 75, 100, 125, 150, 200, 250, 300, 400, 500, 750, 1000]
-      .find(v => wf * 304.8 / v <= PAPER.w && hf * 304.8 / v <= PAPER.h)
-      || Math.ceil(wf * 304.8 / PAPER.w / 100) * 100;
+    Render.scale = force || SCALES.find(v => wf * 304.8 / v <= PAPER.w
+                                          && hf * 304.8 / v <= PAPER.h)
+      || SCALES[SCALES.length - 1];
     Render.mmpp = 304.8 / (Render.scale * PX);
     Render.pad = [MAR * PX, MAR * PX];
     const box = { w: wf * PX, h: hf * PX };
     svg.style.width = (box.w * Render.mmpp).toFixed(2) + "mm";
     svg.style.height = (box.h * Render.mmpp).toFixed(2) + "mm";
     return box;
+  },
+
+  // The drawing and the legend share one sheet, and the legend is the part
+  // that has to be readable. Draw, measure, and if the two do not fit, hand the
+  // drawing a smaller height and let it step down a scale. Two or three passes
+  // settle it, and the scale it lands on is printed on the sheet.
+  sheet(m, svg, metric) {
+    const PAGE = 194 / 25.4 * 96;
+    const lay = force => {
+      const bx = UI.paperBox(m, svg, force);
+      svg.setAttribute("viewBox", `0 0 ${bx.w} ${bx.h}`);
+      svg.innerHTML = Render.plan(m, bx, metric, true);
+      UI.setLegend();
+      return UI.page1() <= PAGE;
+    };
+    if (lay(0)) return;                        // the natural scale had room
+    for (let i = SCALES.indexOf(Render.scale) + 1; i < SCALES.length; i++)
+      if (lay(SCALES[i])) return;              // step down one scale at a time
+  },
+
+  page1() {
+    const high = sel => document.querySelector(sel).getBoundingClientRect().height;
+    return high("header") + high("#plan") + high("#legend");
   },
 
   setLegend() {
@@ -1788,9 +1815,9 @@ const UI = {
       ul.style.columnCount = cols(rows);
       fitted = leg.getBoundingClientRect().height <= room;
     }
-    // Nothing fits under the drawing at this text size, so the legend takes a
-    // page of its own. Squeezing it into sixteen sparse columns would only
-    // make it harder to read on a page that has room to spare.
+    // Still short of room, so stop squeezing: `sheet` will hand the drawing a
+    // smaller height and come round again. Sixteen sparse columns read worse
+    // than six, and a smaller drawing costs only a step of scale.
     if (!fitted) ul.style.columnCount = Math.min(6, cols(6));
   },
 
