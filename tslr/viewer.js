@@ -536,6 +536,18 @@ const Geom = {
     return tot;
   },
 
+  // Where two segments cross, or null if they only would if extended.
+  segMeet(a, b, c, d) {
+    const r = Geom.sub(b, a), sv = Geom.sub(d, c);
+    const den = r[0] * sv[1] - r[1] * sv[0];
+    if (Math.abs(den) < 1e-12) return null;
+    const q = Geom.sub(c, a);
+    const t = (q[0] * sv[1] - q[1] * sv[0]) / den;
+    const u = (q[0] * r[1] - q[1] * r[0]) / den;
+    return t < 0 || t > 1 || u < 0 || u > 1 ? null
+         : [a[0] + r[0] * t, a[1] + r[1] * t];
+  },
+
   // the point `d` along p->q from p
   along(p, q, d) {
     const [u] = Geom.unit(p, q);
@@ -595,7 +607,6 @@ const Geom = {
     // top edge -- east of that crossing a 20 ft road would not fit.
     const drop20 = 20 / Math.cos(slant);
     const inner20 = x => height(x) - drop20;
-    const hit20 = base * (hW - depth - drop20) / (hW - hE);
     const t3foot = Geom.foot(E, B, at(base, depth));   // E onto the rectangle's east edge
     const t3h = Geom.dist(E, t3foot);
     // The land the road leaves is the convex quad A-B-E-F. Squared to the south
@@ -671,9 +682,13 @@ const Geom = {
     for (const p of pieces)
       for (const q of p.poly)
         if (!reg.has(vkey(q))) reg.set(vkey(q), spare.shift() || "?");
-    // the 20 ft crossing is a point worth naming, so it gets the next letter and
-    // reads like every other length: JK, KH
-    const hitPt = hit20 > xW && hit20 < base ? at(hit20, depth) : null;
+    // The 20 ft crossing is a point worth naming, so it gets the next letter and
+    // reads like every other length: JK, KH. It is where the latent 20 ft edge
+    // crosses the top of the built land -- which is the rectangle's top edge
+    // squared, and the turned block's top edge turned, so take it from the
+    // block rather than assuming the squared construction.
+    const w20a = at(-400, inner20(-400)), w20b = at(base + 400, inner20(base + 400));
+    const hitPt = fan ? null : Geom.segMeet(w20a, w20b, block[3], block[2]);
     if (hitPt && !reg.has(vkey(hitPt))) reg.set(vkey(hitPt), spare.shift() || "?");
     const nameOf = q => reg.get(vkey(q)) || "";
     for (const p of pieces) {
@@ -704,9 +719,9 @@ const Geom = {
              }),
              G: at(xW, 0), H: at(base, depth), J: at(xW, depth),
              t3foot, t3h, t1h,
-             w20: { a: at(-400, inner20(-400)), b: at(base + 400, inner20(base + 400)),
-                    hit: turn || fan ? null : hitPt,
-                    run: Math.max(0, Math.min(hit20, base) - xW) },
+             top: [block[3], block[2]],
+             w20: { a: w20a, b: w20b, hit: hitPt,
+                    run: hitPt ? Geom.dist(block[3], hitPt) : 0 },
              dAngle: (() => {
                const [u1] = Geom.unit(D, A), [u2] = Geom.unit(D, C);
                return Math.acos(Geom.dot(u1, u2)) * 180 / Math.PI;
@@ -897,6 +912,7 @@ const Render = {
       for (let i = 0; i < p.poly.length; i++) {
         const a = p.poly[i], b = p.poly[(i + 1) % p.poly.length];
         verts.set(a.map(v => v.toFixed(2)).join(), a);
+        if (Geom.dist(a, b) < 0.05) continue;      // float noise, not an edge
         const key = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2].map(v => Math.round(v)).join();
         if (!seen.has(key)) seen.set(key, [a, b, c, p.key]);
       }
@@ -913,8 +929,8 @@ const Render = {
     const items = [...seen.values()].map(([a2, b2]) =>
       ({ a: a2, b: b2, label: spanTxt(a2, b2) }));
     if (m.w20.hit)
-      items.push({ a: m.J, b: m.w20.hit, label: spanTxt(m.J, m.w20.hit) },
-                 { a: m.w20.hit, b: m.H, label: spanTxt(m.w20.hit, m.H) });
+      items.push({ a: m.top[0], b: m.w20.hit, label: spanTxt(m.top[0], m.w20.hit) },
+                 { a: m.w20.hit, b: m.top[1], label: spanTxt(m.w20.hit, m.top[1]) });
     if (m.headY)
       items.push({ a: m.headPoly[0], b: m.headY, label: spanTxt(m.headPoly[0], m.headY) },
                  { a: m.headY, b: m.C, label: spanTxt(m.headY, m.C) },
@@ -1001,7 +1017,7 @@ const Render = {
       T("turnGain", gain, (gain / 435.6).toFixed(2)))}</p>`;
   },
 
-  schedule(m, metric) {
+  schedule(m, metric, cols = 1) {
     const u = metric ? "m²" : "ft²";
     const val = a => metric ? fmt.m2(a) : fmt.ft2(a);
     const L = x => fmt.len(x, metric);
@@ -1018,15 +1034,24 @@ const Render = {
               : `<br><span class="ent bad">${T("noFront")}</span>`}</td>
         <td class="n">${val(p.area)}</td>
         <td class="n">${fmt.cents(p.area)}</td>
-        <td class="n">${(p.area / m.plot * 100).toFixed(1)}%</td></tr>`).join("");
+        <td class="n">${(p.area / m.plot * 100).toFixed(1)}%</td></tr>`);
     const ok = Math.abs(m.total - m.plot) < 0.5;
-    return `<table><thead><tr><th>${T("thPiece")}</th><th>${T("thSides")}</th>
+    const head = `<thead><tr><th>${T("thPiece")}</th><th>${T("thSides")}</th>
         <th class="n">${u}</th><th class="n">${T("thCents")}</th>
-        <th class="n">%</th></tr></thead><tbody>${rows}</tbody>
-      <tfoot><tr class="${ok ? "ok" : "bad"}"><td>${T("tally")}</td><td class="why">
+        <th class="n">%</th></tr></thead>`;
+    const foot = `<tfoot><tr class="${ok ? "ok" : "bad"}"><td>${T("tally")}</td><td class="why">
         ${ok ? T("partsSum") : T("partsDont") + " — " + (m.total - m.plot).toFixed(1) + " ft²"}</td>
         <td class="n">${val(m.total)}</td><td class="n">${fmt.cents(m.total)}</td>
-        <td class="n">100.0%</td></tr></tfoot></table>`;
+        <td class="n">100.0%</td></tr></tfoot>`;
+    if (cols === 1)
+      return `<table>${head}<tbody>${rows.join("")}</tbody>${foot}</table>`;
+    // A sheet of its own is wider than it is full, so the pieces run down two
+    // columns and the tally sits under both.
+    const half = Math.ceil(rows.length / 2);
+    return `<div class="two">
+        <table>${head}<tbody>${rows.slice(0, half).join("")}</tbody></table>
+        <table>${head}<tbody>${rows.slice(half).join("")}</tbody></table>
+      </div><table class="tally">${foot}</table>`;
   },
 };
 
@@ -1238,7 +1263,8 @@ const UI = {
       svg.setAttribute("viewBox", `0 0 ${bx.w} ${bx.h}`);
       svg.innerHTML = Render.plan(m, bx, metric, paper);
       if (paper) UI.setLegend();
-      $("#sched").innerHTML = Render.turnNote(m, metric) + Render.schedule(m, metric);
+      $("#sched").innerHTML =
+        Render.turnNote(m, metric) + Render.schedule(m, metric, paper ? 2 : 1);
       UI.m = m;
       $("#slant").textContent = m.slant.toFixed(2);
       $("#area").textContent =
@@ -1429,6 +1455,9 @@ const UI = {
   // resized to the paper's proportions and redrawn first, so what prints is
   // laid out for the page rather than scaled off the screen.
   toPdf() {
+    // the host injects a badge into the page; it is not part of the sheet
+    for (const a of document.querySelectorAll('a[href*="netlify"]'))
+      (a.closest("div") || a).classList.add("host-badge");
     const view = UI.view;
     UI.view = { z: 1, t: [0, 0] };                   // paper is not pan and zoom
     document.body.classList.add("printing");

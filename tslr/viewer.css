@@ -210,6 +210,12 @@ body.printing #grip, body.printing #zoom { visibility: hidden; }
 
 @media print {
   @page { size: A4 landscape; margin: 8mm; }
+  /* the schedule gets a sheet of its own, in two columns */
+  #out { break-before: page; }
+  #sched .two { display: flex; gap: 14px; align-items: flex-start; }
+  #sched .two table { width: 50%; }
+  #sched table.tally { margin-top: 6px; }
+  .host-badge, [id*="netlify"], [class*="netlify"] { display: none !important; }
   body { display: block; height: auto; overflow: visible; }
   #grip, #zoom, #panel, #lang, #ctrls, #check, #stepper { display: none !important; }
   #left { height: auto; padding: 0; }
