@@ -15,6 +15,7 @@ import math
 from pathlib import Path
 
 from .geometry import CENT, FT2, Massing, Plot
+from .geometry import unit as _unit
 
 HERE = Path(__file__).parent
 TEMPLATE = """<!doctype html>
@@ -34,6 +35,7 @@ TEMPLATE = """<!doctype html>
     ><button id="zin">+</button></div>
 </div>
 <div id="right">
+  <div id="ctrls">
   <button id="lang"></button>
   <label id="l-bnd"></label>
   <div class="grid">
@@ -49,6 +51,9 @@ TEMPLATE = """<!doctype html>
   <label for="lots" id="l-lots"></label>
   <div class="row"><input id="lots" type="range" min="1" max="8" step="1" value="1">
     <span id="lotsv"></span></div>
+  <label for="head" id="l-head"></label>
+  <div class="row"><input id="head" type="range" min="0" max="{head_max:.2f}"
+      step="0.25" value="0"><span id="headv"></span></div>
   <label for="turn" id="l-turn"></label>
   <div class="row"><input id="turn" type="range" min="-45" max="45" step="0.05" value="0">
     <span id="turnv"></span><button id="bestturn"></button></div>
@@ -62,9 +67,12 @@ TEMPLATE = """<!doctype html>
       <input id="steps" type="range" min="0" max="8" step="1" value="0">
       <button id="next">›</button><span id="stepno"></span></div>
   </div>
-  <div id="sched"></div>
-  <div id="check"></div>
-  <footer id="l-foot" data-reg="{registered:.0f}"></footer>
+  </div>
+  <div id="out">
+    <div id="sched"></div>
+    <div id="check"></div>
+    <footer id="l-foot" data-reg="{registered:.0f}"></footer>
+  </div>
 </div>
 <script>{js}</script>
 """
@@ -74,6 +82,18 @@ def _diag_range(plot: Plot):
     """The window a diagonal must fall in for both triangles to close."""
     return (max(abs(plot.south - plot.east), abs(plot.north - plot.west)),
             min(plot.south + plot.east, plot.north + plot.west))
+
+
+def head_limit(plot: Plot, road: float) -> float:
+    """How far back along the road the turning head can start.
+
+    Past this the perpendicular drops west of B and misses the east boundary
+    altogether, so there is no triangle to reserve.
+    """
+    m = Massing(plot, road)
+    _, B, _, _ = plot.corners
+    (ux, uy), _ = _unit(m.E, m.F)
+    return (B[0] - m.E[0]) * ux + (B[1] - m.E[1]) * uy
 
 
 def road_limit(plot: Plot) -> float:
@@ -110,6 +130,7 @@ def build(plot: Plot, out: Path, site: dict | None = None):
     html = TEMPLATE.format(
         survey=site.get("survey", "plot"), ward=site.get("ward", ""),
         registered=plot.registered, road_max=road_limit(plot) - 1,
+        head_max=head_limit(plot, 20.0),
         css=(HERE / "viewer.css").read_text(),
         js=(HERE / "viewer.js").read_text().replace("__SITE__", json.dumps(data)))
     out.parent.mkdir(parents=True, exist_ok=True)

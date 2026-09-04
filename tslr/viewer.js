@@ -30,6 +30,12 @@ const I18N = {
     fanLabel: "Four-sided lots — no waste at all",
     eqLabel: "Give every lot the same buildable rectangle",
     entrance: "opens onto the road over",
+    headLabel: "Turning head at the dead end, back along the road from E",
+    headOff: "none", TurningHead: "Turning head",
+    headNote: (l, d, a, c) => `A car turning at the dead end needs ${l} ft back ` +
+      `along the road from E, then ${d} ft square down to the east boundary. ` +
+      `That right triangle is ${a} ft² (${c} cents) of common ground, taken ` +
+      `off the last lot before the others are cut.`,
     noFront: "no road frontage — reached across the strip in front, which is " +
              "therefore common, not private",
     buildable: "buildable",
@@ -135,6 +141,11 @@ const I18N = {
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
     entrance: "சாலைக்கான நுழைவு அகலம்",
+    headLabel: "முட்டுச்சந்தில் வாகனம் திரும்பும் இடம், E இலிருந்து சாலை வழியே",
+    headOff: "இல்லை", TurningHead: "திரும்பும் இடம்",
+    headNote: (l, d, a, c) => `முட்டுச்சந்தில் வாகனம் திரும்ப E இலிருந்து ${l} அடி ` +
+      `சாலை வழியே, பின் ${d} அடி செங்குத்தாக கிழக்கு எல்லை வரை தேவை. அந்த ` +
+      `செங்கோண முக்கோணம் ${a} ச.அடி (${c} சென்ட்) பொது இடம்.`,
     noFront: "சாலை முகப்பு இல்லை — முன்பகுதி வழியாகச் செல்ல வேண்டும், " +
              "எனவே அது பொது இடம்",
     buildable: "கட்டிடத்திற்கு",
@@ -512,6 +523,17 @@ const Geom = {
     return tot;
   },
 
+  // the point `d` along p->q from p
+  along(p, q, d) {
+    const [u] = Geom.unit(p, q);
+    return [p[0] + u[0] * d, p[1] + u[1] * d];
+  },
+
+  perp(p, q) {
+    const [u] = Geom.unit(p, q);
+    return [-u[1], u[0]];
+  },
+
   corners(poly) {
     return poly.map((q, i) => {
       const p = poly[(i - 1 + poly.length) % poly.length], r = poly[(i + 1) % poly.length];
@@ -532,7 +554,7 @@ const Geom = {
     return parts.join(" + ");
   },
 
-  construct(corners, roadW, lots = 1, turn = 0, fan = false, equalise = "land") {
+  construct(corners, roadW, lots = 1, turn = 0, fan = false, equalise = "land", head = 0) {
     const [A, B, C, D] = corners;
     const P = Geom.foot(D, A, B);
     const Q = Geom.crossTo(B, A, B, D, C);
@@ -567,15 +589,22 @@ const Geom = {
     // boundary the block is the rectangle above; turned, it is the largest
     // rectangle at that angle inside the same quad, and the leftovers are what
     // the quad has outside it.
-    const region = [A, B, E, F];
-    const block = turn ? Geom.inscribe(region, turn).box : rect;
+    // A dead-end road needs somewhere to turn a car round. The head is a right
+    // triangle at E: one leg back along the road, then square down to the east
+    // boundary. It is common ground, so it comes out before any lot is cut.
+    const headW = head > 0 ? Geom.along(E, F, head) : null;
+    const headV = headW ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), B, E) : null;
+    const headPoly = headW ? [headW, E, headV] : null;
+    const region = headW ? [A, B, headV, headW, F] : [A, B, E, F];
+    // reserving the head changes what rectangle fits, so re-inscribe it
+    const block = turn || headW ? Geom.inscribe(region, turn).box : rect;
     const [b0, b1, b2, b3] = block;
     const lotW = Geom.dist(b0, b1) / lots, blockD = Geom.dist(b1, b2);
     const cut = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
     // Four-sided lots tile the quad exactly, so nothing is left over at all.
     // The corner lot pays for that in shape rather than in area.
     const lotPolys = fan
-      ? Geom.bands(region, F, E, lots, equalise)
+      ? Geom.bands(region, F, headW || E, lots, equalise)
       : Array.from({ length: lots }, (_, i) => ({
           poly: [cut(b0, b1, i / lots), cut(b0, b1, (i + 1) / lots),
                  cut(b3, b2, (i + 1) / lots), cut(b3, b2, i / lots)], build: null }));
@@ -604,7 +633,10 @@ const Geom = {
         area: Geom.dist(B, at(base, depth)) * t3h / 2 },
     ];
     const pieces = [roadPiece, ...lotPieces,
-                    ...(fan ? [] : turn ? Geom.offcuts(region, block) : squared)];
+                    ...(fan ? [] : turn || headW ? Geom.offcuts(region, block) : squared),
+                    ...(headPoly ? [{ key: "head", nk: "TurningHead", poly: headPoly,
+                        why: `½ × ${head.toFixed(2)} × ${Geom.dist(headW, headV).toFixed(2)}`,
+                        area: head * Geom.dist(headW, headV) / 2 }] : [])];
     // Every vertex gets a letter; A-D are the plot corners and F, E the feet of
     // the road's inner edge, so a length can be quoted as the pair it spans.
     const vkey = q => q.map(v => v.toFixed(2)).join();
@@ -620,7 +652,10 @@ const Geom = {
     if (hitPt && !reg.has(vkey(hitPt))) reg.set(vkey(hitPt), spare.shift() || "?");
     const nameOf = q => reg.get(vkey(q)) || "";
     for (const p of pieces) {
-      p.entrance = p.key === "road" ? 0 : Geom.entrance(p.poly, F, E);
+      // the road and the head are the common ground itself, so neither needs
+      // to be told it has an entrance onto the road
+      p.entrance = p.key === "road" || p.key === "head"
+                 ? 0 : Geom.entrance(p.poly, F, headW || E);
       p.name = p.nk === "lot" ? T("lot", p.ni)
              : p.nk === "offcut" ? T("offcut", p.ni) : T(p.nk);
       p.sides = p.poly.map((q, i) => Geom.dist(q, p.poly[(i + 1) % p.poly.length]));
@@ -629,6 +664,7 @@ const Geom = {
     const plot = Geom.shoelace(corners);
     return { A, B, C, D, P, Q, F, E, at, height, inner, base, xW, width, depth,
              hW, hE, slant: slant * 180 / Math.PI, roadW, rect: block, turn, fan, equalise,
+             head, headPoly,
              region, lots, lotW, blockD,
              pieces, plot, nameOf,
              allVertices: [...reg.keys()].map(kk => kk.split(",").map(Number)),
@@ -662,7 +698,8 @@ const fmt = {
 
 // ---------------------------------------------------------------- Render
 const Render = {
-  fills: { road: ["#e9e9e9", "#9e9e9e"], rect: ["#d8f3f8", "#00b8d4"],
+  fills: { road: ["#e9e9e9", "#9e9e9e"], head: ["#dcdcdc", "#616161"],
+           rect: ["#d8f3f8", "#00b8d4"],
            t1: ["#fdf0d5", "#c98a1e"], t2: ["#f6dcdc", "#8b2f2f"], t3: ["#f6dcdc", "#8b2f2f"] },
 
   // lot1..lotN are slices of the block and carry its colour; an offcut is
@@ -773,11 +810,15 @@ const Render = {
     const [w20a, w20b] = [X(m.w20.a), X(m.w20.b)];
     out.push(`<line x1="${w20a[0]}" y1="${w20a[1]}" x2="${w20b[0]}" y2="${w20b[1]}"
                class="w20" clip-path="url(#plot)"/>`);
-    for (const [a, b] of [[m.at(m.xW, 0), m.F], [m.B, m.at(m.base, m.depth)]]) {
-      const [p, q] = [X(a), X(b)];
-      out.push(`<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"
-                 stroke="#a00" stroke-width="2"/>`);
-    }
+    // the two red edges belong to the squared construction. Once the block is
+    // turned, cut into four-sided lots or shortened by a head, they mark
+    // nothing, and next to the buildable rectangles they only mislead.
+    if (!m.fan && !m.turn && !m.head)
+      for (const [a, b] of [[m.at(m.xW, 0), m.F], [m.B, m.at(m.base, m.depth)]]) {
+        const [p, q] = [X(a), X(b)];
+        out.push(`<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}"
+                   stroke="#a00" stroke-width="2"/>`);
+      }
     const fixed = [];                       // piece names, which are drawn already
     for (const p of m.pieces) {
       const c = p.poly.reduce((a, q) => [a[0] + q[0] / p.poly.length, a[1] + q[1] / p.poly.length], [0, 0]);
@@ -874,6 +915,10 @@ const Render = {
 
   // What the turn buys, in the same units as the schedule under it.
   turnNote(m, metric) {
+    const hd = m.headPoly && m.pieces.find(p => p.key === "head");
+    const headSays = hd ? `<p class="note">${T("headNote", fmt.len(m.head, metric),
+      fmt.len(Geom.dist(m.headPoly[0], m.headPoly[2]), metric),
+      fmt.ft2(hd.area), fmt.cents(hd.area))}</p>` : "";
     if (m.fan) {
       const flat = Geom.construct([m.A, m.B, m.C, m.D], m.roadW, m.lots, 0, false);
       const each = m.pieces.filter(p => p.key === "rect" || p.key.startsWith("lot"));
@@ -885,14 +930,14 @@ const Render = {
       const head = m.equalise === "buildable"
         ? T("eqNote", fmt.ft2(b), fmt.cents(b))
         : T("fanNote", fmt.ft2(each[0].area), fmt.cents(each[0].area), gain.toLocaleString());
-      return `<p class="note">${head} ${T("fanCorner", sharp.toFixed(0))}</p>`;
+      return headSays + `<p class="note">${head} ${T("fanCorner", sharp.toFixed(0))}</p>`;
     }
-    if (!m.turn) return "";
+    if (!m.turn) return headSays;
     const flat = Geom.construct([m.A, m.B, m.C, m.D], m.roadW, m.lots, 0);
     const block = p => p.pieces.filter(q => q.key === "rect" || q.key.startsWith("lot"))
                         .reduce((t, q) => t + q.area, 0);
     const gain = Math.round(block(m) - block(flat));
-    return `<p class="note">${T("turnNote", m.turn.toFixed(2),
+    return headSays + `<p class="note">${T("turnNote", m.turn.toFixed(2),
       T("turnGain", gain, (gain / 435.6).toFixed(2)))}</p>`;
   },
 
@@ -906,7 +951,7 @@ const Render = {
         <td class="why">${p.spans.map((sp, i) => `${sp} ${L(p.sides[i])}`).join(", ")}
             <br><i>${p.why}</i>${p.build ? `<br><b class="bld">${T("buildable")}
             ${p.buildWhy} = ${fmt.ft2(p.buildArea)} ft² (${fmt.cents(p.buildArea)} ${T("thCents")})</b>` : ""}
-            ${p.key === "road" ? "" : p.entrance > 0.05
+            ${p.key === "road" || p.key === "head" ? "" : p.entrance > 0.05
               ? `<br><span class="ent">${T("entrance")} ${L(p.entrance)}</span>`
               : `<br><span class="ent bad">${T("noFront")}</span>`}</td>
         <td class="n">${val(p.area)}</td>
@@ -1106,12 +1151,15 @@ const UI = {
     const roadW = +$("#road").value, lots = +$("#lots").value;
     const turn = +$("#turn").value, fan = $("#fan").checked;
     const equalise = $("#eqbuild").checked ? "buildable" : "land";
+    const head = +$("#head").value;
     $("#roadv").textContent = fmt.len(roadW, metric) + (metric ? " m" : " ft");
     $("#lotsv").textContent = lots === 1 ? T("oneRect") : T("lots", lots);
     $("#turnv").textContent = turn ? `${turn.toFixed(2)}°` : T("squareOn");
+    $("#headv").textContent = head ? fmt.len(head, metric) + (metric ? " m" : " ft")
+                                   : T("headOff");
     document.body.classList.toggle("fanning", fan);
     try {
-      const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan, equalise);
+      const m = Geom.construct(Geom.closure(sides), roadW, lots, turn, fan, equalise, head);
       if (!isFinite(m.total) || m.depth <= 0) throw new Error(T("noRoom"));
       const svg = $("#plan"), b = svg.getBoundingClientRect();
       svg.setAttribute("viewBox", `0 0 ${b.width} ${b.height}`);
@@ -1282,6 +1330,7 @@ const UI = {
     set("bestturn", T("bestBtn"));
     set("l-fan", T("fanLabel"));
     set("l-eqbuild", T("eqLabel"));
+    set("l-head", T("headLabel"));
     set("l-metric", T("metres"));
     set("zfit", T("fit"));
     set("l-closure", T("closure"));

@@ -25,16 +25,49 @@ from shapely.geometry import LineString, Polygon
 from .geometry import CENT, TOL, Massing, Piece, Plot
 
 
-def buildable(plot: Plot, road_w: float) -> tuple[Polygon, LineString]:
-    """(land left after the road, the road's inner edge).
+def buildable(plot: Plot, road_w: float, head: float = 0.0) -> tuple[Polygon, LineString]:
+    """(land left after the road, the frontage lots can open onto).
 
     The plot and the road strip are both convex. The strip is cut by one
     straight line, so what is left is a convex quadrilateral A-B-E-F. Every
     routine below relies on that convexity.
+
+    `head` reserves a turning head at the dead end: a right triangle whose one
+    leg runs `head` feet back along the road from E, then square down to the
+    east boundary. Cutting a corner off a convex shape leaves it convex.
     """
     m = Massing(plot, road_w)
     A, B, _, _ = plot.corners
-    return Polygon([A, B, m.E, m.F]), LineString([m.F, m.E])
+    if head <= 0:
+        return Polygon([A, B, m.E, m.F]), LineString([m.F, m.E])
+    W, V = head_ends(plot, road_w, head)
+    return Polygon([A, B, V, W, m.F]), LineString([m.F, W])
+
+
+def head_ends(plot: Plot, road_w: float, head: float):
+    """Where a turning head of that length starts on the road, and lands on BE."""
+    m = Massing(plot, road_w)
+    _, B, _, _ = plot.corners
+    d = math.dist(m.E, m.F)
+    u = ((m.F[0] - m.E[0]) / d, (m.F[1] - m.E[1]) / d)
+    if head > (B[0] - m.E[0]) * u[0] + (B[1] - m.E[1]) * u[1]:
+        raise AssertionError(f"a {head:.2f} ft head drops west of B and misses the "
+                             f"east boundary")
+    W = (m.E[0] + u[0] * head, m.E[1] + u[1] * head)
+    n = (-u[1], u[0])
+    # W + t*n meets the line B-E
+    ex, ey = m.E[0] - B[0], m.E[1] - B[1]
+    den = n[0] * ey - n[1] * ex
+    t = ((B[0] - W[0]) * ey - (B[1] - W[1]) * ex) / den
+    return W, (W[0] + n[0] * t, W[1] + n[1] * t)
+
+
+def head_limit(plot: Plot, road_w: float) -> float:
+    """The longest head whose perpendicular still lands on the east boundary."""
+    m = Massing(plot, road_w)
+    _, B, _, _ = plot.corners
+    d = math.dist(m.E, m.F)
+    return ((B[0] - m.E[0]) * (m.F[0] - m.E[0]) + (B[1] - m.E[1]) * (m.F[1] - m.E[1])) / d
 
 
 def _profile(xy: np.ndarray, xs: np.ndarray):
@@ -225,11 +258,17 @@ class Fan:
     n: int = 3
     square_to: str = "road"          # "road" or "south": what the cuts stand square to
     equalise: str = "land"           # "land" or "buildable"
+    head: float = 0.0                # turning head reserved at the dead end, ft
 
     def __post_init__(self):
-        region, inner = buildable(self.plot, self.road_w)
-        A, B, E, F = region.exterior.coords[:-1]
+        region, inner = buildable(self.plot, self.road_w, self.head)
+        F, E = inner.coords[0], inner.coords[-1]
+        A, B = self.plot.corners[0], self.plot.corners[1]
         a, b = (F, E) if self.square_to == "road" else (A, B)
+        self.head_poly = (Polygon([*head_ends(self.plot, self.road_w, self.head)][:1]
+                                  + [Massing(self.plot, self.road_w).E]
+                                  + [head_ends(self.plot, self.road_w, self.head)[1]])
+                          if self.head > 0 else None)
         d = math.dist(a, b)
         u = ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
         ts = [(q[0] - a[0]) * u[0] + (q[1] - a[1]) * u[1]
@@ -245,7 +284,7 @@ class Fan:
         edges = [lo, *cuts, hi]
         self.lots = [_band(region, a, u, edges[i], edges[i + 1]) for i in range(self.n)]
         self.rects = [Polygon(inscribed(g, self.angle)[1]) for g in self.lots]
-        self.road = self.plot.quad.difference(region)
+        self.road = self.plot.quad.difference(buildable(self.plot, self.road_w)[0])
         self.audit()
 
     @property
@@ -267,10 +306,15 @@ class Fan:
         out.append(Piece("Road", self.road,
                          f"{self.road_w:.2f} ft perpendicular, full north boundary",
                          self.road.area))
+        if self.head_poly is not None:
+            q = list(self.head_poly.exterior.coords[:-1])
+            out.append(Piece("Turning head", self.head_poly,
+                             f"1/2 x {self.head:.2f} x {math.dist(q[0], q[2]):.2f}",
+                             self.head * math.dist(q[0], q[2]) / 2))
         return out
 
     def audit(self, tol=TOL):
-        """No offcuts means the lots and the road must be the whole plot."""
+        """No offcuts means the lots, the road and the head are the whole plot."""
         for p in self.pieces():
             p.verify(tol)
         got = ([g.area for g in self.lots] if self.equalise == "land"
@@ -289,8 +333,11 @@ class Fan:
         return self
 
     def tally(self) -> dict:
-        return dict(lots=self.region.area, road=self.road.area, waste=0.0,
-                    total=self.region.area + self.road.area, plot=self.plot.area_ft2)
+        """The head is common ground, so it counts with the road, not the lots."""
+        head = self.head_poly.area if self.head_poly is not None else 0.0
+        return dict(lots=self.region.area, road=self.road.area + head, waste=0.0,
+                    total=self.region.area + self.road.area + head,
+                    plot=self.plot.area_ft2)
 
     def corners(self) -> list[list[float]]:
         """Interior angles of each lot. The corner lot pays for the zero waste."""
@@ -320,8 +367,8 @@ def _cuts_equal_land(region, a, u, lo, hi, n):
 def _reach(fan, region, a, u, lo, hi, target):
     """Cuts giving every lot a buildable rectangle of at least `target`, or None.
 
-    Each lot is taken no wider than it needs to be, so if this walk runs out of
-    land the target is out of reach for any other set of cuts.
+    Each lot is taken no wider than it needs to be. So if this walk runs out of
+    land, the target is out of reach for any other set of cuts.
     """
     prev, out = lo, []
     for _ in range(fan.n - 1):

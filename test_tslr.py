@@ -227,6 +227,37 @@ def test_the_squared_rectangle_has_no_road_frontage_of_its_own():
     assert abs(sum(ents) - d) < 0.01, "the lots share the whole road edge"
 
 
+def test_the_turning_head_comes_off_the_last_lot():
+    """A dead-end road needs somewhere to turn a car. That triangle is common
+    ground, so it must leave the lots and join the road, not vanish."""
+    from tslr.optimize_lot import Fan, head_ends, head_limit
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    limit = head_limit(site, 20.0)
+    assert 24 < limit < 25, limit
+    plain = Fan(site, 20.0, 3, equalise="buildable")
+    for h in (5.0, 10.0, 20.0, limit - 0.05):
+        f = Fan(site, 20.0, 3, equalise="buildable", head=h)
+        f.audit()                                   # parts still make the whole
+        assert abs(f.tally()["total"] - site.area_ft2) < 0.01
+        # it is the last lot that pays, and the others do not move
+        assert f.lots[-1].area < plain.lots[-1].area
+        for i in (0, 1):
+            assert abs(f.lots[i].area - plain.lots[i].area) < 1.0
+        # and common ground grows by exactly the triangle
+        assert abs(f.tally()["road"] - plain.tally()["road"] - f.head_poly.area) < 0.01
+    # the head is a right triangle: leg along the road, then square down to BE
+    W, V = head_ends(site, 20.0, 20.0)
+    m = __import__("tslr.geometry", fromlist=["Massing"]).Massing(site, 20.0)
+    import math
+    a = (m.E[0] - W[0], m.E[1] - W[1])
+    b = (V[0] - W[0], V[1] - W[1])
+    assert abs(a[0] * b[0] + a[1] * b[1]) < 1e-6, "the drop is not square to the road"
+    assert abs(math.dist(W, m.E) - 20.0) < 1e-6
+    # past the limit the drop misses the east boundary, and it says so
+    with pytest.raises(AssertionError, match="misses the east boundary"):
+        Fan(site, 20.0, 3, head=limit + 1)
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""
