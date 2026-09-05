@@ -58,3 +58,26 @@ return code.
 `generated/gmaps_overlay.js` pastes into the browser console on Google Maps
 satellite view. It reads the map centre and zoom out of the URL and redraws four
 times a second, so it tracks panning instead of drifting off.
+
+## FreeCAD
+
+    python -m tslr --freecad --road 20 --lots 3 --head 20 --show
+
+Writes `generated/tslr_11-14-18.FCStd`. `--show` opens it.
+
+The boundary is a Sketch whose four sides and A-C diagonal are named
+dimensional constraints, so it reports **fully constrained**: the shape is
+driven by the figures rather than drawn to look like them. Change
+`north` and the plot moves. The lots, the road and the turning head are
+faces, each labelled with its area in square feet and cents, and the
+buildable rectangles are dashed wires.
+
+Everything is built at full size in millimetres, so FreeCAD's own measuring
+tools are an independent check on ours. They agree piece for piece.
+
+Set **Edit > Preferences > General > Units** to `MKS` to read metres rather
+than millimetres.
+
+FreeCAD has no shapely, so it is handed a JSON spec rather than importing the
+package. `freecadcmd` reads anything on its command line as a file to open, so
+the paths go through `TSLR_SPEC` and `TSLR_OUT` in the environment.

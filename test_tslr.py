@@ -290,6 +290,40 @@ def test_the_turning_ray_carried_on_cuts_a_right_triangle_at_the_dead_end():
     assert 925 < wedge.area < 940, wedge.area
 
 
+def test_the_freecad_spec_carries_the_whole_plot():
+    """FreeCAD has no shapely, so it is handed rings and told what they are. If
+    the handover drops or distorts a piece, nothing downstream will notice."""
+    import math
+    from tslr.__main__ import freecad_spec
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    spec = freecad_spec(site, None, 20.0, 3, 20.0, "buildable")
+    assert [round(spec["sides_m"][k], 2) for k in ("south", "east", "north", "west")] \
+        == [63.20, 25.00, 72.60, 30.00]
+    assert round(spec["diagonal_m"], 2) == 79.00
+    # the sketch is driven by those five figures, so they must close on the corners
+    q = spec["corners_ft"]
+    got = [math.dist(q[i], q[(i + 1) % 4]) / M2FT for i in range(4)]
+    assert [round(x, 2) for x in got] == [63.20, 25.00, 72.60, 30.00], got
+    assert abs(math.dist(q[0], q[2]) / M2FT - 79.00) < 0.01
+
+    def area(ring):
+        n = len(ring)
+        return abs(sum(ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1]
+                       for i in range(n))) / 2
+
+    pieces = spec["lots"] + spec["common"]
+    assert len(spec["lots"]) == 3 and len(spec["common"]) == 2      # road and head
+    assert abs(sum(area(p["ring"]) for p in pieces) - site.area_ft2) < 0.5
+    # every ring is a real polygon, and none repeats its first point
+    for p in pieces + spec["buildable"]:
+        assert len(p["ring"]) >= 3
+        assert math.dist(p["ring"][0], p["ring"][-1]) > 1e-6
+        assert area(p["ring"]) > 0.5
+    # the buildable rectangles are equal, which is what the labels claim
+    got = [round(area(b["ring"])) for b in spec["buildable"]]
+    assert max(got) - min(got) <= 1, got
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

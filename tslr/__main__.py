@@ -4,6 +4,7 @@
     python -m tslr --paper A3 --out generated/plan.pdf
     python -m tslr --sides 72.60 25 63.20 30 --road 20
     python -m tslr --optimize            # best block of identical lots, per road width
+    python -m tslr --freecad             # + a FreeCAD document, boundary as a real sketch
     python -m tslr --gis                 # + GeoPackage, .qgz and the map overlay
     python -m tslr --html                # + site/index.html, the interactive viewer
 
@@ -13,6 +14,7 @@ what was measured and where it came from -- edit that rather than passing flags.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import tempfile
@@ -92,6 +94,79 @@ def optimise(plot: Plot, road: float, lots: int):
     return "\n".join(lines)
 
 
+FREECAD = "/Applications/FreeCAD.app/Contents/Resources/bin/freecadcmd"
+FREECAD_GUI = "/Applications/FreeCAD.app/Contents/MacOS/FreeCAD"
+
+# the viewer's palette, so the same piece is the same colour everywhere
+INK = {"road": (158, 158, 158), "head": (97, 97, 97), "rect": (0, 184, 212),
+       "lot": (0, 184, 212), "off": (139, 47, 47), "t1": (201, 138, 30),
+       "t2": (139, 47, 47), "t3": (139, 47, 47)}
+
+
+def _ink(key: str):
+    return INK.get(key, INK.get(key.rstrip("0123456789"), (150, 150, 150)))
+
+
+def _ring(poly):
+    return [[round(x, 4), round(y, 4)] for x, y in poly.exterior.coords[:-1]]
+
+
+def freecad_spec(plot: Plot, site: dict | None, road: float, lots: int,
+                 head: float, equalise: str) -> dict:
+    """What FreeCAD needs, in feet, from the side of the fence that has shapely."""
+    from .optimize_lot import Fan
+    fan = Fan(plot, road, lots, equalise=equalise, head=head)
+    common, sell = [], []
+    for p in fan.pieces():
+        item = {"key": p.name.split()[0].lower().replace(" ", ""),
+                "label": f"{p.name} - {p.area:,.0f} sqft ({p.area / CENT:.2f} cents)",
+                "ring": _ring(p.poly)}
+        item["colour"] = _ink("lot" if p.name.startswith("Lot") else
+                              "head" if "head" in p.name.lower() else "road")
+        item["key"] = p.name.replace(" ", "")
+        (sell if p.name.startswith("Lot") else common).append(item)
+    spec = {"name": site.get("survey", "plot") if site else "plot",
+            "sides_m": {"south": plot.south, "east": plot.east,
+                        "north": plot.north, "west": plot.west},
+            "diagonal_m": plot.diagonal or round(plot.diagonals_m["AC"], 4),
+            "corners_ft": [[round(x, 4), round(y, 4)] for x, y in plot.corners],
+            "lots": sell, "common": common,
+            "buildable": [{"key": f"Buildable{i + 1}",
+                           "label": f"Buildable {i + 1} - "
+                                    f"{fan.rect_size(i)[0]:.2f} x {fan.rect_size(i)[1]:.2f} ft"
+                                    f" = {r.area:,.0f} sqft",
+                           "ring": _ring(r), "colour": (123, 31, 162)}
+                          for i, r in enumerate(fan.rects)]}
+    return spec
+
+
+def freecad(plot: Plot, site: dict | None, out_dir: Path, road: float, lots: int,
+            head: float, equalise: str, show: bool):
+    """A FreeCAD document: the boundary as a driven sketch, the carve as faces."""
+    spec = freecad_spec(plot, site, road, lots, head, equalise)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    spec_path = out_dir / "freecad_spec.json"
+    spec_path.write_text(json.dumps(spec, indent=1))
+    fcstd = (out_dir / "tslr_11-14-18.FCStd").resolve()
+    fcstd.unlink(missing_ok=True)
+    env = {**os.environ, "TSLR_SPEC": str(spec_path.resolve()), "TSLR_OUT": str(fcstd)}
+    r = subprocess.run([FREECAD, str(Path(__file__).with_name("freecad_build.py"))],
+                       capture_output=True, text=True, env=env)
+    for line in r.stdout.splitlines():
+        if line.strip() and not any(x in line for x in ("FreeCAD", "(C)", "%)", "Recompute")):
+            print("  " + line)
+    if not fcstd.exists():
+        print(r.stderr[-800:])
+        raise SystemExit("FreeCAD build failed")
+    if show:
+        # Run the same builder under the GUI rather than opening the file it
+        # just made. Colours live on the view object, which only exists when
+        # there is a window, so a headless build has none to save.
+        subprocess.Popen([FREECAD_GUI, str(Path(__file__).with_name("freecad_build.py"))],
+                         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return [str(fcstd), str(spec_path)]
+
+
 def gis(plot, site, out_dir: Path, road: float):
     """GeoPackage + QGIS project + a browser overlay, all georeferenced."""
     from .gis import Georef, overlay_js, write_geojson
@@ -142,6 +217,13 @@ def main(argv=None):
     ap.add_argument("--optimize", action="store_true",
                     help="search every orientation for the best block of identical lots")
     ap.add_argument("--lots", type=int, default=3, help="lots in that block (default 3)")
+    ap.add_argument("--freecad", action="store_true",
+                    help="also write a FreeCAD document, the boundary a driven sketch")
+    ap.add_argument("--show", action="store_true", help="open it in FreeCAD when done")
+    ap.add_argument("--head", type=float, default=0.0,
+                    help="turning head reserved at the dead end, feet back from E")
+    ap.add_argument("--equalise", choices=("land", "buildable"), default="buildable",
+                    help="what the lots are made equal on (default buildable)")
     a = ap.parse_args(argv)
 
     site = None
@@ -160,6 +242,9 @@ def main(argv=None):
     if a.html:
         from .html import build as build_html
         print("wrote", build_html(plot, Path("site/index.html"), site))
+    if a.freecad:
+        print("wrote", *freecad(plot, site, a.out.parent, a.road, a.lots,
+                                a.head, a.equalise, a.show), sep="\n  ")
     if a.gis:
         print("wrote", *gis(plot, site, a.out.parent, a.road), sep="\n  ")
 
