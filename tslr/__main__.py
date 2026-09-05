@@ -5,6 +5,7 @@
     python -m tslr --sides 72.60 25 63.20 30 --road 20
     python -m tslr --optimize            # best block of identical lots, per road width
     python -m tslr --freecad             # + a FreeCAD document, boundary as a real sketch
+    python -m tslr --dxf                 # + a DXF, which any CAD program opens
     python -m tslr --gis                 # + GeoPackage, .qgz and the map overlay
     python -m tslr --html                # + site/index.html, the interactive viewer
 
@@ -162,8 +163,13 @@ def freecad(plot: Plot, site: dict | None, out_dir: Path, road: float, lots: int
         # Run the same builder under the GUI rather than opening the file it
         # just made. Colours live on the view object, which only exists when
         # there is a window, so a headless build has none to save.
+        # FreeCAD 1.1.3 on macOS segfaults in QMacAccessibilityElement dealloc
+        # whenever the system's accessibility layer touches its widgets. The
+        # crash is in Qt's Cocoa bridge, not in the document. Turning the bridge
+        # off keeps it out of reach.
         subprocess.Popen([FREECAD_GUI, str(Path(__file__).with_name("freecad_build.py"))],
-                         env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         env={**env, "QT_ACCESSIBILITY": "0"},
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return [str(fcstd), str(spec_path)]
 
 
@@ -220,6 +226,8 @@ def main(argv=None):
     ap.add_argument("--freecad", action="store_true",
                     help="also write a FreeCAD document, the boundary a driven sketch")
     ap.add_argument("--show", action="store_true", help="open it in FreeCAD when done")
+    ap.add_argument("--dxf", action="store_true",
+                    help="also write a DXF, in metres, for any CAD program")
     ap.add_argument("--head", type=float, default=0.0,
                     help="turning head reserved at the dead end, feet back from E")
     ap.add_argument("--equalise", choices=("land", "buildable"), default="buildable",
@@ -242,6 +250,10 @@ def main(argv=None):
     if a.html:
         from .html import build as build_html
         print("wrote", build_html(plot, Path("site/index.html"), site))
+    if a.dxf:
+        from .dxf import write as write_dxf
+        spec = freecad_spec(plot, site, a.road, a.lots, a.head, a.equalise)
+        print("wrote", write_dxf(spec, a.out.parent / "tslr_11-14-18.dxf"))
     if a.freecad:
         print("wrote", *freecad(plot, site, a.out.parent, a.road, a.lots,
                                 a.head, a.equalise, a.show), sep="\n  ")

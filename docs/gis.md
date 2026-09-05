@@ -78,6 +78,32 @@ tools are an independent check on ours. They agree piece for piece.
 Set **Edit > Preferences > General > Units** to `MKS` to read metres rather
 than millimetres.
 
+### FreeCAD's window does not work on this machine
+
+FreeCAD 1.1.3 on macOS 26.5 segfaults in Qt's Cocoa accessibility bridge:
+
+    -[QMacAccessibilityElement dealloc]  ->  objc_release  ->  SIGSEGV
+
+It does this with an empty document, launched from the Finder, with nobody
+touching it, within a minute of starting. Nothing here can fix that from the
+outside, and `QT_ACCESSIBILITY=0` does not reach it, because macOS accessibility
+runs through NSAccessibility rather than the bridge that variable controls.
+
+`freecadcmd` is unaffected, so the document still builds and can still be read
+back. To see a drawing, use the DXF below.
+
+## DXF
+
+    python -m tslr --dxf
+
+Writes `generated/tslr_11-14-18.dxf` in metres, with the unit declared in the
+header, on layers BOUNDARY, LOTS, ROAD, HEAD, BUILDABLE and TEXT. LibreCAD,
+QCAD and most online viewers open it.
+
+Read back through FreeCAD's own DXF importer it gives the boundary as 190.80 m
+of perimeter and 19,019 sqft, and the lots plus the common ground add to the
+same 19,019.
+
 FreeCAD has no shapely, so it is handed a JSON spec rather than importing the
 package. `freecadcmd` reads anything on its command line as a file to open, so
 the paths go through `TSLR_SPEC` and `TSLR_OUT` in the environment.

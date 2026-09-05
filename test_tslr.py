@@ -324,6 +324,48 @@ def test_the_freecad_spec_carries_the_whole_plot():
     assert max(got) - min(got) <= 1, got
 
 
+def test_the_dxf_carries_the_same_figures():
+    """FreeCAD's window is unusable on this machine, so the DXF is how the
+    drawing leaves the repo. It has to survive being read back."""
+    import re
+    import tempfile
+    from pathlib import Path
+    from tslr.__main__ import freecad_spec
+    from tslr.dxf import write as write_dxf
+    site = Plot(72.60, 25.00, 63.20, 30.00, diagonal=79.00, diagonal_ends="AC")
+    spec = freecad_spec(site, None, 20.0, 3, 20.0, "buildable")
+    with tempfile.TemporaryDirectory() as tmp:
+        text = write_dxf(spec, Path(tmp) / "p.dxf").read_text()
+
+    def rings(src):
+        """Every LWPOLYLINE, as its list of points."""
+        out = []
+        for block in src.split("\n0\nLWPOLYLINE\n")[1:]:
+            block = block.split("\n0\n")[0]
+            xs = re.findall(r"\n10\n([-\d.]+)", block)
+            ys = re.findall(r"\n20\n([-\d.]+)", block)
+            out.append([(float(a), float(b)) for a, b in zip(xs, ys)])
+        return out
+
+    got = rings(text)
+    assert len(got) == 1 + 3 + 2 + 3, len(got)      # boundary, lots, common, buildable
+    assert "$INSUNITS" in text and "\n70\n6\n" in text, "the unit must be declared"
+
+    def area(ring):
+        n = len(ring)
+        return abs(sum(ring[i][0] * ring[(i + 1) % n][1] - ring[(i + 1) % n][0] * ring[i][1]
+                       for i in range(n))) / 2
+
+    M2FT = 1 / 0.3048
+    # written in metres, so the boundary must come back as the plot
+    assert abs(area(got[0]) * M2FT ** 2 - site.area_ft2) < 1.0
+    # and the lots and the common ground still make the whole
+    assert abs(sum(area(r) for r in got[1:6]) * M2FT ** 2 - site.area_ft2) < 1.0
+    for r in got:
+        assert len(r) >= 3
+    assert all(layer in text for layer in ("BOUNDARY", "LOTS", "ROAD", "HEAD", "BUILDABLE"))
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""
