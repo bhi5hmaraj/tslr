@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from shapely.geometry import Point
 
 from tslr import CENT, Carve, Plot
 from tslr.geometry import M2FT, Piece, brahmagupta, diagonal_for_area, fan, heron, sides
@@ -399,6 +400,36 @@ def test_the_cyclic_closure_is_unique_and_is_the_maximum():
     assert abs(sq.corner_angles[3] - 90.0) < 0.01
     assert sq.area_m2 < cyc.area_m2
     assert abs(sq.diagonals_m["AC"] - 79.00) < 0.5, "should agree with the pins"
+
+
+def test_a_construction_that_leaves_the_plot_is_refused():
+    """The page lets you pick the closure, and the squared construction does not
+    survive all of them. It assumes the foot of the perpendicular from D lands
+    inside AB, which needs A under 90 degrees. The cyclic closure has A at 97.76,
+    and the three triangles then describe land the plot does not own -- while
+    still summing correctly, because they sum among themselves."""
+    import math
+    from tslr.geometry import Massing, road_frame
+    from tslr.optimize_lot import Fan
+    a, b, c, d = 72.60, 25.00, 63.20, 30.00
+    cyc = Plot(a, b, c, d, diagonal=72.6055, diagonal_ends="AC")
+    assert cyc.corner_angles[0] > 90, cyc.corner_angles[0]
+    with pytest.raises(AssertionError, match="falls outside the plot"):
+        Massing(cyc, 20.0)
+
+    # the road itself is fine at that closure: it does not depend on the carve
+    F, E = road_frame(cyc, 20.0)[9:11]
+    assert cyc.quad.buffer(1e-6).contains(Point(F))
+    assert cyc.quad.buffer(1e-6).contains(Point(E))
+
+    # and four-sided lots, which are cut from the land rather than assumed,
+    # work at every closure
+    for ac in (79.00, math.hypot(a, d), 72.6055):
+        p = Plot(a, b, c, d, diagonal=ac, diagonal_ends="AC")
+        f = Fan(p, 20.0, 3, equalise="buildable", head=5.0)
+        assert abs(f.tally()["total"] - p.area_ft2) < 0.01
+        for g in f.lots + [f.head_poly]:
+            assert p.quad.buffer(1e-6).contains(g), ac
 
 
 def test_the_published_page_matches_the_source():

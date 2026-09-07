@@ -73,6 +73,7 @@ const I18N = {
             "south boundary and rises until it meets that edge.",
     registered: "Registered extent", cannot: "Cannot draw these figures",
     noRoom: "no room for that road",
+    outside: name => `${name} falls outside the plot at this shape`,
     thPiece: "piece", thSides: "sides, and area = base × height",
     thCents: "cents", tally: "TALLY", partsSum: "parts sum to the plot",
     partsDont: "PARTS DO NOT SUM",
@@ -204,6 +205,7 @@ const I18N = {
             "செங்குத்தாக நின்று அந்த விளிம்பைத் தொடும் வரை உயர்கிறது.",
     registered: "பதிவு செய்யப்பட்ட பரப்பளவு", cannot: "இந்த அளவுகளை வரைய முடியாது",
     noRoom: "அந்த அகலமான சாலைக்கு இடம் இல்லை",
+    outside: name => `இந்த வடிவத்தில் ${name} நிலத்திற்கு வெளியே செல்கிறது`,
     thPiece: "பகுதி", thSides: "பக்கங்கள், பரப்பு = அடிப்படை × உயரம்",
     thCents: "சென்ட்", tally: "மொத்தம்", partsSum: "பகுதிகளின் கூட்டுத்தொகை சரி",
     partsDont: "பகுதிகள் கூடவில்லை",
@@ -593,6 +595,29 @@ const Geom = {
          : [a[0] + r[0] * t, a[1] + r[1] * t];
   },
 
+  // How far back along the road a turning head can start. Past this its
+  // perpendicular drops west of B and lands on nothing.
+  headLimit(corners, F, E) {
+    const [, B] = corners;
+    const [u] = Geom.unit(E, F);
+    return Math.max(0, Geom.dot(Geom.sub(B, E), u));
+  },
+
+  // Is every corner of `poly` inside the convex quad? The construction assumes
+  // a shape, and a different closure can put a piece outside the land.
+  inQuad(poly, q) {
+    let sign = 0;
+    for (const p of poly)
+      for (let i = 0; i < 4; i++) {
+        const a = q[i], b = q[(i + 1) % 4];
+        const c = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+        if (Math.abs(c) < 1e-6) continue;
+        if (sign === 0) sign = Math.sign(c);
+        else if (Math.sign(c) !== sign) return false;
+      }
+    return true;
+  },
+
   // the point `d` along p->q from p
   along(p, q, d) {
     const [u] = Geom.unit(p, q);
@@ -662,22 +687,29 @@ const Geom = {
     // triangle at E: one leg back along the road, then square down to the east
     // boundary. It is common ground, so it comes out before any lot is cut.
     const headW = head > 0 ? Geom.along(E, F, head) : null;
-    const headV = headW ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), B, E) : null;
-    const headPoly = headW ? [headW, E, headV] : null;
+    // segMeet, not meet: past the limit the perpendicular misses BE entirely,
+    // and an infinite-line intersection would happily draw a spike out of the
+    // plot. The ray runs both ways from M, because which way is "down" depends
+    // on how the boundary happens to be wound.
+    const hn = headW && Geom.perp(E, F);
+    const headV = headW ? Geom.segMeet(Geom.add(headW, Geom.mul(hn, 900)),
+                                       Geom.add(headW, Geom.mul(hn, -900)), B, E) : null;
+    const headPoly = headW && headV ? [headW, E, headV] : null;
     // the same 90 deg ray carried the other way, across the road to the north
     // boundary. DC runs parallel to the road's inner edge, so MY is the road
     // width and the wedge beyond the ray, L-Y-C, is a right triangle at Y.
-    const headY = headW ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), D, C) : null;
-    const region = headW ? [A, B, headV, headW, F] : [A, B, E, F];
+    const headY = headPoly ? Geom.meet(headW, Geom.add(headW, Geom.perp(E, F)), D, C) : null;
+    const region = headPoly ? [A, B, headV, headW, F] : [A, B, E, F];
     // reserving the head changes what rectangle fits, so re-inscribe it
-    const block = turn || headW ? Geom.inscribe(region, turn).box : rect;
+    const flat = Geom.inQuad(rect, [A, B, C, D]);
+    const block = turn || headPoly || !flat ? Geom.inscribe(region, turn).box : rect;
     const [b0, b1, b2, b3] = block;
     const lotW = Geom.dist(b0, b1) / lots, blockD = Geom.dist(b1, b2);
     const cut = (p, q, f) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f];
     // Four-sided lots tile the quad exactly, so nothing is left over at all.
     // The corner lot pays for that in shape rather than in area.
     const lotPolys = fan
-      ? Geom.bands(region, F, headW || E, lots, equalise)
+      ? Geom.bands(region, F, headPoly ? headW : E, lots, equalise)
       : Array.from({ length: lots }, (_, i) => ({
           poly: [cut(b0, b1, i / lots), cut(b0, b1, (i + 1) / lots),
                  cut(b3, b2, (i + 1) / lots), cut(b3, b2, i / lots)], build: null }));
@@ -708,8 +740,14 @@ const Geom = {
         why: `½ × ${Geom.dist(B, at(base, depth)).toFixed(2)} × ${t3h.toFixed(2)}`,
         area: Geom.dist(B, at(base, depth)) * t3h / 2 },
     ];
+    // T1, T2 and T3 are written down from the squared construction, which puts
+    // the foot of the perpendicular from D inside AB. A closure with an obtuse
+    // corner at A puts it outside, and those three pieces then describe land
+    // the plot does not own. Subtraction always describes the land itself.
+    const squaredHolds = !turn && !headPoly &&
+      [block, ...squared.map(p => p.poly)].every(g => Geom.inQuad(g, [A, B, C, D]));
     const pieces = [roadPiece, ...lotPieces,
-                    ...(fan ? [] : turn || headW ? Geom.offcuts(region, block) : squared),
+                    ...(fan ? [] : squaredHolds ? squared : Geom.offcuts(region, block)),
                     ...(headPoly ? [{ key: "head", nk: "TurningHead", poly: headPoly,
                         why: `½ × ${head.toFixed(2)} × ${Geom.dist(headW, headV).toFixed(2)}`,
                         area: head * Geom.dist(headW, headV) / 2 }] : [])];
@@ -740,7 +778,7 @@ const Geom = {
       // the road and the head are the common ground itself, so neither needs
       // to be told it has an entrance onto the road
       p.entrance = p.key === "road" || p.key === "head"
-                 ? 0 : Geom.entrance(p.poly, F, headW || E);
+                 ? 0 : Geom.entrance(p.poly, F, headPoly ? headW : E);
       if (p.beyond)
         p.beyond.spans = p.beyond.poly.map(q => nameOf(q)).join("");
       p.name = p.nk === "lot" ? T("lot", p.ni)
@@ -748,10 +786,15 @@ const Geom = {
       p.sides = p.poly.map((q, i) => Geom.dist(q, p.poly[(i + 1) % p.poly.length]));
       p.spans = p.poly.map((q, i) => nameOf(q) + nameOf(p.poly[(i + 1) % p.poly.length]));
     }
+    // The guard neither the squared pieces nor the head had: whatever the
+    // closure, no piece may lie outside the land it is carved from.
+    for (const p of pieces)
+      if (!Geom.inQuad(p.poly, [A, B, C, D]))
+        throw new Error(T("outside", p.nk === "lot" ? T("lot", p.ni) : T(p.nk)));
     const plot = Geom.shoelace(corners);
     return { A, B, C, D, P, Q, F, E, at, height, inner, base, xW, width, depth,
              hW, hE, slant: slant * 180 / Math.PI, roadW, rect: block, turn, fan, equalise,
-             head, headPoly, headY,
+             head, headPoly, headY, corners0: [A, B, C, D],
              wedge: headY ? Math.abs(Geom.shoelace([headV, headY, C])) : 0,
              region, lots, lotW, blockD,
              pieces, plot, nameOf,
@@ -1289,6 +1332,13 @@ const UI = {
     const roadW = +$("#road").value, lots = +$("#lots").value;
     const turn = +$("#turn").value, fan = $("#fan").checked;
     const equalise = $("#eqbuild").checked ? "buildable" : "land";
+    // The head's ceiling was baked in for the recorded shape, and each closure
+    // has its own. Setting max on a range input clamps its value, so the read
+    // below cannot come back out of range.
+    try {
+      const c0 = Geom.construct(Geom.closure(sides), roadW);
+      $("#head").max = Geom.headLimit(c0.corners0, c0.F, c0.E).toFixed(2);
+    } catch (e) { /* the closure or the road is impossible; the draw below says so */ }
     const head = +$("#head").value;
     $("#roadv").textContent = fmt.len(roadW, metric) + (metric ? " m" : " ft");
     $("#lotsv").textContent = lots === 1 ? T("oneRect") : T("lots", lots);

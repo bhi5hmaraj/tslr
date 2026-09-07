@@ -571,6 +571,34 @@ def diagonal_for_area(plot: Plot, ends="AC", target: float | None = None):
     return roots, peak, peak_d
 
 
+def road_frame(plot: Plot, road_w: float):
+    """The road's own geometry, and only that.
+
+    Where the inner edge cuts the two side boundaries depends on the plot and
+    the width, not on how the land behind it is later carved. Keeping it
+    separate means a construction that does not suit a given closure cannot
+    take the road down with it.
+    """
+    A, B, C, D = plot.corners
+    P = foot(D, A, B)                      # 90 deg down from the top-left
+    Q = cross_to(B, A, B, D, C)            # straight up from the bottom-right
+    h_west, h_east = math.dist(P, D), math.dist(B, Q)
+    (ux, uy), base = unit(P, B)
+    nx, ny = -uy, ux
+    if nx * (D[0] - P[0]) + ny * (D[1] - P[1]) < 0:
+        nx, ny = -nx, -ny
+    slant = math.degrees(math.atan2(h_west - h_east, base))
+    at = lambda t, h: (P[0] + ux * t + nx * h, P[1] + uy * t + ny * h)
+    height = lambda x: h_west - (h_west - h_east) * x / base
+    drop = road_w / math.cos(math.radians(slant))
+    inner = lambda x: height(x) - drop
+    far = LineString([at(-400, inner(-400)), at(400, inner(400))])
+    F = far.intersection(LineString([A, D])).coords[0]
+    E = far.intersection(LineString([B, C])).coords[0]
+    return (P, Q, h_west, h_east, base, slant, at, height, inner, F, E,
+            (ux, uy), (nx, ny))
+
+
 @dataclass
 class Massing:
     """Road, one big rectangle, and the triangles that fall out of them.
@@ -587,23 +615,10 @@ class Massing:
 
     def __post_init__(self):
         A, B, C, D = self.plot.corners
-        self.P = foot(D, A, B)                 # 90 deg down from the top-left
-        self.Q = cross_to(B, A, B, D, C)       # straight up from the bottom-right
-        self.h_west, self.h_east = math.dist(self.P, D), math.dist(B, self.Q)
-        (ux, uy), self.base = unit(self.P, B)
-        nx, ny = -uy, ux
-        if nx * (D[0] - self.P[0]) + ny * (D[1] - self.P[1]) < 0:
-            nx, ny = -nx, -ny
-        self.slant = math.degrees(math.atan2(self.h_west - self.h_east, self.base))
-        self.at = lambda t, h: (self.P[0] + ux * t + nx * h, self.P[1] + uy * t + ny * h)
-        self.height = lambda x: self.h_west - (self.h_west - self.h_east) * x / self.base
-        drop = self.road_w / math.cos(math.radians(self.slant))
-        self.inner = lambda x: self.height(x) - drop
-
-        # where the road's inner edge cuts the two side boundaries
-        far = LineString([self.at(-400, self.inner(-400)), self.at(400, self.inner(400))])
-        self.F = far.intersection(LineString([A, D])).coords[0]
-        self.E = far.intersection(LineString([B, C])).coords[0]
+        fr = road_frame(self.plot, self.road_w)
+        (self.P, self.Q, self.h_west, self.h_east, self.base, self.slant,
+         self.at, self.height, self.inner, self.F, self.E) = fr[:11]
+        (ux, uy), (nx, ny) = fr[11], fr[12]
         self.x_west = (self.F[0] - self.P[0]) * ux + (self.F[1] - self.P[1]) * uy
         self.depth = self.inner(self.base)     # rectangle meets the road at the east
         at, w, e = self.at, self.x_west, self.base
@@ -642,6 +657,18 @@ class Massing:
     def audit(self, tol=TOL):
         for p in self.pieces:
             p.verify(tol)
+        # T1, T2 and T3 are written down from this construction, which assumes
+        # the foot of the perpendicular from D lands inside AB. An obtuse corner
+        # at A puts it outside, and the pieces then describe land the plot does
+        # not own while still summing correctly, because they sum among
+        # themselves. Containment is the check that catches it.
+        land = self.plot.quad.buffer(1e-6)
+        for p in self.pieces:
+            if not land.contains(p.poly):
+                raise AssertionError(f"{p.name} falls outside the plot: this "
+                                     f"construction needs a corner at A under 90 "
+                                     f"degrees, and it is "
+                                     f"{self.plot.corner_angles[0]:.2f}")
         total = sum(p.area for p in self.pieces)
         if abs(total - self.plot.area_ft2) > tol:
             raise AssertionError(f"parts sum to {total:,.1f} ft2, plot is "

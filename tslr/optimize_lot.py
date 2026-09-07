@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 from shapely.geometry import LineString, Polygon
 
-from .geometry import CENT, TOL, Massing, Piece, Plot
+from .geometry import CENT, TOL, Piece, Plot, road_frame
 
 
 def buildable(plot: Plot, road_w: float, head: float = 0.0) -> tuple[Polygon, LineString]:
@@ -36,27 +36,27 @@ def buildable(plot: Plot, road_w: float, head: float = 0.0) -> tuple[Polygon, Li
     leg runs `head` feet back along the road from E, then square down to the
     east boundary. Cutting a corner off a convex shape leaves it convex.
     """
-    m = Massing(plot, road_w)
+    F, E = road_frame(plot, road_w)[9:11]
     A, B, _, _ = plot.corners
     if head <= 0:
-        return Polygon([A, B, m.E, m.F]), LineString([m.F, m.E])
+        return Polygon([A, B, E, F]), LineString([F, E])
     W, V = head_ends(plot, road_w, head)
-    return Polygon([A, B, V, W, m.F]), LineString([m.F, W])
+    return Polygon([A, B, V, W, F]), LineString([F, W])
 
 
 def head_ends(plot: Plot, road_w: float, head: float):
     """Where a turning head of that length starts on the road, and lands on BE."""
-    m = Massing(plot, road_w)
+    F, E = road_frame(plot, road_w)[9:11]
     _, B, _, _ = plot.corners
-    d = math.dist(m.E, m.F)
-    u = ((m.F[0] - m.E[0]) / d, (m.F[1] - m.E[1]) / d)
-    if head > (B[0] - m.E[0]) * u[0] + (B[1] - m.E[1]) * u[1]:
+    d = math.dist(E, F)
+    u = ((F[0] - E[0]) / d, (F[1] - E[1]) / d)
+    if head > (B[0] - E[0]) * u[0] + (B[1] - E[1]) * u[1]:
         raise AssertionError(f"a {head:.2f} ft head drops west of B and misses the "
                              f"east boundary")
-    W = (m.E[0] + u[0] * head, m.E[1] + u[1] * head)
+    W = (E[0] + u[0] * head, E[1] + u[1] * head)
     n = (-u[1], u[0])
     # W + t*n meets the line B-E
-    ex, ey = m.E[0] - B[0], m.E[1] - B[1]
+    ex, ey = E[0] - B[0], E[1] - B[1]
     den = n[0] * ey - n[1] * ex
     t = ((B[0] - W[0]) * ey - (B[1] - W[1]) * ex) / den
     return W, (W[0] + n[0] * t, W[1] + n[1] * t)
@@ -64,10 +64,10 @@ def head_ends(plot: Plot, road_w: float, head: float):
 
 def head_limit(plot: Plot, road_w: float) -> float:
     """The longest head whose perpendicular still lands on the east boundary."""
-    m = Massing(plot, road_w)
+    F, E = road_frame(plot, road_w)[9:11]
     _, B, _, _ = plot.corners
-    d = math.dist(m.E, m.F)
-    return ((B[0] - m.E[0]) * (m.F[0] - m.E[0]) + (B[1] - m.E[1]) * (m.F[1] - m.E[1])) / d
+    d = math.dist(E, F)
+    return ((B[0] - E[0]) * (F[0] - E[0]) + (B[1] - E[1]) * (F[1] - E[1])) / d
 
 
 def _profile(xy: np.ndarray, xs: np.ndarray):
@@ -265,9 +265,9 @@ class Fan:
         F, E = inner.coords[0], inner.coords[-1]
         A, B = self.plot.corners[0], self.plot.corners[1]
         a, b = (F, E) if self.square_to == "road" else (A, B)
-        self.head_poly = (Polygon([*head_ends(self.plot, self.road_w, self.head)][:1]
-                                  + [Massing(self.plot, self.road_w).E]
-                                  + [head_ends(self.plot, self.road_w, self.head)[1]])
+        self.head_poly = (Polygon([head_ends(self.plot, self.road_w, self.head)[0],
+                                   road_frame(self.plot, self.road_w)[10],
+                                   head_ends(self.plot, self.road_w, self.head)[1]])
                           if self.head > 0 else None)
         d = math.dist(a, b)
         u = ((b[0] - a[0]) / d, (b[1] - a[1]) / d)
