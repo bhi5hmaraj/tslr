@@ -28,6 +28,20 @@ const I18N = {
     turnExplain: "Step-by-step covers the squared construction — set the turn " +
                  "back to 0° to walk through it.",
     fanLabel: "Four-sided lots — no waste at all",
+    shapeLabel: "Shape — what fixes the diagonal",
+    cPins: "Satellite pins",
+    cSquare: "Right angle at D, as the FMB draws it",
+    cCyclic: "Cyclic — the largest those sides can hold",
+    cCustom: "Typed in by hand",
+    cOpt: (name, d, cents) => `${name} — AC ${d}, ${cents} cents`,
+    nPins: "Four corners read off satellite imagery, good to about ±1.2 m. " +
+           "Evidence about the real shape, but not a tape.",
+    nSquare: "The FMB draws D as a right angle, so AC is Pythagoras on the two " +
+             "sides meeting there. It agrees with the pins to 0.45 m.",
+    nCyclic: "Brahmagupta's maximum, attained only if all four corners lie on a " +
+             "circle. It needs D at 78.09°, which is 11.9° off the square corner " +
+             "the FMB draws, so it is almost certainly not this plot.",
+    nCustom: "Your own figure. Tape A to C and this is the one to use.",
     fsizeLabel: "Text size, on screen and on paper",
     eqLabel: "Give every lot the same buildable rectangle",
     entrance: "opens onto the road over",
@@ -147,6 +161,20 @@ const I18N = {
     turnExplain: "படிப்படியான விளக்கம் நேரான அமைப்புக்கு மட்டுமே — திருப்பத்தை " +
                  "0° ஆக்கினால் அதைப் பார்க்கலாம்.",
     fanLabel: "நான்கு பக்க மனைகள் — வீணாவது எதுவும் இல்லை",
+    shapeLabel: "வடிவம் — மூலைவிட்டத்தை நிர்ணயிப்பது",
+    cPins: "செயற்கைக்கோள் புள்ளிகள்",
+    cSquare: "D இல் செங்கோணம், FMB வரைவது போல",
+    cCyclic: "வட்ட வடிவம் — இந்தப் பக்கங்கள் கொள்ளக்கூடிய அதிகபட்சம்",
+    cCustom: "கையால் இட்டது",
+    cOpt: (name, d, cents) => `${name} — AC ${d}, ${cents} சென்ட்`,
+    nPins: "செயற்கைக்கோள் படத்திலிருந்து படித்த நான்கு மூலைகள், சுமார் ±1.2 மீ " +
+           "துல்லியம். ஆதாரம், ஆனால் அளவுநாடா அல்ல.",
+    nSquare: "FMB இல் D செங்கோணமாக வரையப்பட்டுள்ளது, எனவே AC என்பது அங்கு " +
+             "சந்திக்கும் இரு பக்கங்களின் பித்தகோரஸ். புள்ளிகளுடன் 0.45 மீ வரை ஒத்துப்போகிறது.",
+    nCyclic: "பிரம்மகுப்தரின் அதிகபட்சம், நான்கு மூலைகளும் ஒரே வட்டத்தில் " +
+             "இருந்தால் மட்டுமே. இதற்கு D = 78.09° தேவை, FMB வரையும் செங்கோணத்தில் " +
+             "இருந்து 11.9° விலகல்.",
+    nCustom: "உங்கள் சொந்த அளவு. A இலிருந்து C வரை அளந்தால் இதுவே சரி.",
     fsizeLabel: "எழுத்து அளவு, திரையிலும் தாளிலும்",
     eqLabel: "எல்லா மனைகளுக்கும் ஒரே கட்டிட செவ்வகம்",
     entrance: "சாலைக்கான நுழைவு அகலம்",
@@ -364,6 +392,21 @@ const Geom = {
   },
 
   // The whole construction. corners = [A, B, C, D] in feet.
+  // Four lengths do not fix a quadrilateral. These are the three ways to close
+  // it, and they disagree by nearly two cents, so the page should let you pick.
+  closures(s) {
+    const AB = s.south, BC = s.east, CD = s.north, DA = s.west;
+    // cyclic means B + D = 180, so cos D = -cos B. Equate the two law-of-cosines
+    // expressions for AC and the angle falls out of the sides alone.
+    const cosB = (AB * AB + BC * BC - CD * CD - DA * DA) / (2 * (AB * BC + CD * DA));
+    return {
+      // the FMB draws D square, so AC is Pythagoras on the sides meeting there
+      square: Math.hypot(CD, DA),
+      cyclic: Math.sqrt(AB * AB + BC * BC - 2 * AB * BC * cosB),
+      pins: SITE.sides.diagonal,
+    };
+  },
+
   // Keep the part of a convex polygon on one side of the line a->b: `want` is
   // +1 for the side `ref` lies on, -1 for the other. Sutherland-Hodgman.
   clipHalf(poly, a, b, ref, want) {
@@ -1253,6 +1296,7 @@ const UI = {
     $("#headv").textContent = head ? fmt.len(head, metric) + (metric ? " m" : " ft")
                                    : T("headOff");
     document.body.classList.toggle("fanning", fan);
+    UI.shapes(sides, metric);
     const fs = +$("#fsize").value;
     document.documentElement.style.setProperty("--fs", fs / 100);
     $("#fsizev").textContent = fs + "%";
@@ -1427,6 +1471,29 @@ const UI = {
 
   // The seam between the drawing and the panel is draggable, so a long
   // schedule and a big drawing do not have to fight over one fixed split.
+  // Label each closure with what it actually comes to, and mark which one the
+  // diagonal is currently sitting on. Stateless: the diagonal is the truth, and
+  // the menu follows it, so typing a figure by hand shows as custom on its own.
+  shapes(sides, metric) {
+    const $ = s => document.querySelector(s);
+    const cl = Geom.closures(sides), sel = $("#closure");
+    let on = "custom";
+    for (const [key, d] of Object.entries(cl)) {
+      const opt = sel.querySelector(`option[value="${key}"]`);
+      let cents = "?";
+      try {
+        const q = Geom.closure({ ...sides, diagonal: d, ends: "AC" });
+        cents = fmt.cents(Math.abs(Geom.shoelace(q)));
+      } catch (e) { /* that closure does not exist for these sides */ }
+      opt.textContent = T("cOpt", T("c" + key[0].toUpperCase() + key.slice(1)),
+                          d.toFixed(2) + " m", cents);
+      if (Math.abs(d - sides.diagonal) < 0.005) on = key;
+    }
+    sel.querySelector('option[value="custom"]').textContent = T("cCustom");
+    sel.value = on;
+    $("#shapenote").textContent = T("n" + on[0].toUpperCase() + on.slice(1));
+  },
+
   // A drawing is only worth printing if a ruler agrees with it. Pick the
   // largest standard scale whose sheet still fits A4 landscape, then size the
   // SVG in millimetres so one foot on the ground is exactly its share of one.
@@ -1572,6 +1639,7 @@ const UI = {
     set("l-turn", T("turnLabel"));
     set("bestturn", T("bestBtn"));
     set("l-fan", T("fanLabel"));
+    set("l-shape", T("shapeLabel"));
     set("l-fsize", T("fsizeLabel"));
     set("l-eqbuild", T("eqLabel"));
     set("l-head", T("headLabel"));
@@ -1592,6 +1660,11 @@ const UI = {
     if (fs) document.querySelector("#fsize").value = fs;
     UI.wireGrip();
     document.querySelector("#pdf").onclick = UI.toPdf;
+    document.querySelector("#closure").onchange = e => {
+      const d = Geom.closures(UI.read())[e.target.value];
+      if (d) document.querySelector("#diagonal").value = d.toFixed(4);
+      UI.draw();
+    };
     document.querySelector("#bestturn").onclick = () => {
       const m = Geom.construct(Geom.closure(UI.read()), +document.querySelector("#road").value);
       document.querySelector("#turn").value = Geom.bestTurn(m.region);

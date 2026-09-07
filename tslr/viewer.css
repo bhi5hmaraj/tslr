@@ -90,6 +90,9 @@ body.explaining label[for=turn] { opacity: .45; }
 body.fanning label[for=turn], body.fanning label[for=turn] + .row { opacity: .4; }
 body.fanning #turn, body.fanning #bestturn { pointer-events: none; }
 /* equalising the buildable rectangle only means anything for four-sided lots */
+#closure { width: 100%; padding: 4px 5px; font: inherit; font-size: 12px;
+           border: 1px solid #ccc; border-radius: 3px; background: #fff; }
+#shapenote { font-size: 11px; line-height: 1.5; color: #666; margin-top: 5px; }
 .sub-opt { margin-left: 18px; opacity: .4; }
 body.fanning .sub-opt { opacity: 1; }
 body:not(.fanning) .sub-opt input { pointer-events: none; }

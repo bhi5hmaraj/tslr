@@ -47,6 +47,14 @@ TEMPLATE = """<!doctype html>
     <span id="l-west"></span><input id="west" type="number" step="0.01">
     <span id="l-diagonal"></span><input id="diagonal" type="number" step="0.01">
   </div>
+  <label for="closure" id="l-shape"></label>
+  <select id="closure">
+    <option value="pins"></option>
+    <option value="square"></option>
+    <option value="cyclic"></option>
+    <option value="custom"></option>
+  </select>
+  <div id="shapenote"></div>
   <label for="road" id="l-road"></label>
   <div class="row"><input id="road" type="range" min="6" max="{road_max:.1f}"
       step="0.5" value="20"><span id="roadv"></span></div>

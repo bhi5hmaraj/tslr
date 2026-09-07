@@ -366,6 +366,41 @@ def test_the_dxf_carries_the_same_figures():
     assert all(layer in text for layer in ("BOUNDARY", "LOTS", "ROAD", "HEAD", "BUILDABLE"))
 
 
+def test_the_cyclic_closure_is_unique_and_is_the_maximum():
+    """The page offers three shapes for the same four sides. The cyclic one has
+    to be the biggest, and there has to be only one of it."""
+    import math
+    from tslr.geometry import brahmagupta
+    a, b, c, d = 72.60, 25.00, 63.20, 30.00          # north east south west
+    AB, BC, CD, DA = c, b, a, d                      # round the boundary from A
+    cos_b = (AB ** 2 + BC ** 2 - CD ** 2 - DA ** 2) / (2 * (AB * BC + CD * DA))
+    assert -1 < cos_b < 1, cos_b                     # so arccos gives one answer
+    ac = math.sqrt(AB ** 2 + BC ** 2 - 2 * AB * BC * cos_b)
+    cyc = Plot(a, b, c, d, diagonal=ac, diagonal_ends="AC")
+    assert cyc.is_cyclic
+    assert abs(cyc.area_m2 - brahmagupta(a, b, c, d)) < 0.01
+    assert abs(cyc.area_m2 - cyc.max_area_m2) < 0.01
+
+    # fixing the other diagonal instead must land on the very same shape
+    cos_a = (AB ** 2 + DA ** 2 - BC ** 2 - CD ** 2) / (2 * (AB * DA + BC * CD))
+    bd = math.sqrt(AB ** 2 + DA ** 2 - 2 * AB * DA * cos_a)
+    assert abs(Plot(a, b, c, d, diagonal=bd, diagonal_ends="BD").area_m2
+               - cyc.area_m2) < 0.01
+
+    # and nothing else beats it: walk the whole hinge
+    lo = max(abs(c - b), abs(a - d)) + 1e-6
+    hi = min(c + b, a + d) - 1e-6
+    for i in range(1, 400):
+        t = lo + (hi - lo) * i / 400
+        assert Plot(a, b, c, d, diagonal=t, diagonal_ends="AC").area_m2 <= cyc.area_m2 + 1e-6
+
+    # the FMB's right angle at D is a different shape, and a smaller one
+    sq = Plot(a, b, c, d, diagonal=math.hypot(a, d), diagonal_ends="AC")
+    assert abs(sq.corner_angles[3] - 90.0) < 0.01
+    assert sq.area_m2 < cyc.area_m2
+    assert abs(sq.diagonals_m["AC"] - 79.00) < 0.5, "should agree with the pins"
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""
