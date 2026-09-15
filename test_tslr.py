@@ -432,6 +432,54 @@ def test_a_construction_that_leaves_the_plot_is_refused():
             assert p.quad.buffer(1e-6).contains(g), ac
 
 
+def test_an_fmb_checked_against_its_own_drawing():
+    """1542/1 records four sides and an area, and the two need not agree. The
+    sketch is drawn to scale, so its angles pick out one shape; the register
+    picks out two others."""
+    from tslr import survey
+    from tslr.geometry import brahmagupta
+    rec = survey.load("1542-1")
+    s, e, n, w = rec["sides_m"]
+    cs = {c["key"]: c for c in survey.closures(rec)}
+
+    # every closure carries the four written sides
+    for c in cs.values():
+        got = sorted(round(x, 2) for x in c["plot"].sides_m)
+        assert got == sorted(rec["sides_m"]), got
+    assert cs["drawing"]["misfit"] < 1.0, cs["drawing"]["misfit"]
+    # the register is reachable here, and met exactly twice
+    reg = [c for k, c in cs.items() if k.startswith("register")]
+    assert len(reg) == 2
+    for c in reg:
+        assert abs(c["area_m2"] - rec["registered_m2"]) < 0.01
+    assert abs(cs["cyclic"]["area_m2"] - brahmagupta(n, e, s, w)) < 0.01
+    assert all(c["area_m2"] <= cs["cyclic"]["area_m2"] + 1e-6 for c in cs.values())
+    # and the drawing does not support the register: it holds more
+    assert cs["drawing"]["area_m2"] > rec["registered_m2"] + 30
+    assert min(c["misfit"] for c in reg) > 10
+
+
+def test_the_offset_construction_adds_back_up():
+    """B's parallel to CD meets AD at X; X, A and B dropped square onto CD. Two
+    rectangles and four right triangles must rebuild the plot, on any closure."""
+    import math
+    from tslr import survey
+    rec = survey.load("1542-1")
+    for c in survey.closures(rec):
+        xc = survey.x_construction(rec, c["plot"])
+        pt, L = xc["points"], xc["length"]
+        assert abs(xc["area_m2"] - c["area_m2"]) < 1e-6
+        # BX really is parallel to CD, and X really is on AD
+        assert abs(pt["X"][1] - pt["B"][1]) < 1e-9 and abs(pt["D"][1] - pt["C"][1]) < 1e-9
+        assert abs(L("D", "X") + L("X", "A") - L("D", "A")) < 1e-9
+        # the feet fall in order and split CD exactly
+        assert abs(L("D", "P") + L("P", "Q") + L("Q", "R") + L("R", "C") - L("D", "C")) < 1e-9
+        for foot, top in (("P", "X"), ("Q", "A"), ("R", "B")):
+            assert abs(pt[foot][0] - pt[top][0]) < 1e-9          # square to CD
+    # the letters run clockwise from A at the top
+    assert survey.letters(rec) == {"D": "3", "C": "4", "B": "2", "A": "A"}
+
+
 def test_the_published_page_matches_the_source():
     """site/index.html is what Netlify serves and what the drawings must agree
     with, so a stale one is a page that quietly contradicts the PDFs."""

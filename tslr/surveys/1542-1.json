@@ -1,0 +1,19 @@
+{
+  "key": "1542-1",
+  "survey": "S.No 1542/1",
+  "village": "Keela Thiruthangal [15]",
+  "taluk": "Sivakasi",
+  "district": "Virudhunagar",
+  "scale": 366,
+  "approved": "2017-12-27",
+  "issued": "2026-09-15",
+  "source": "Downloads/1542:1.pdf, Survey and Settlement Department FMB",
+  "walk": ["3", "4", "2", "A"],
+  "sides_m": [45.6, 27.6, 15.0, 39.6],
+  "registered_m2": 850.0,
+  "registered_as": "Hect 00 Ares 8.50",
+  "drawn_angles": {"3": 55.01, "4": 70.67, "2": 134.91, "A": 99.41},
+  "drawn_how": "Each side fitted by least squares to the line work of the FMB rendered at 300 dpi, corners taken where the fitted sides meet. At 1:366 every drawn side lands within 0.27 m of its written figure.",
+  "neighbours": {"west": "1549", "east": "1543", "south": "1542/2A"},
+  "offsets": {"apex": "A", "through": "2"}
+}

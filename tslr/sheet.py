@@ -36,10 +36,12 @@ A4 = Paper("A4", 297.0, 210.0, 300, 0.78, 55.0)
 class Sheet:
     """Coordinate mapping and SVG primitives for one page."""
 
-    def __init__(self, carve: G.Carve, paper: Paper = A4):
+    def __init__(self, carve, paper: Paper = A4):
         self.c, self.p = carve, paper
         self.sc = 0.3048 * 1000 / paper.denom          # mm per foot
-        self.minx, self.miny, self.maxx, self.maxy = carve.plot.quad.bounds
+        # a bare Plot draws as well as a Carve: only the boundary sets the frame
+        plot = getattr(carve, "plot", carve)
+        self.minx, self.miny, self.maxx, self.maxy = plot.quad.bounds
         self.plan_w = (self.maxx - self.minx) * self.sc
         self.plan_h = (self.maxy - self.miny) * self.sc
         self.ox = (paper.w - self.plan_w) / 2

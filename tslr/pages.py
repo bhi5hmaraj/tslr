@@ -255,3 +255,126 @@ def massing(sh: Sheet, m, title="MASSING — road, rectangle, triangles"):
            f"{m.plot.area_m2:.1f} m²  =  the whole plot", 3.6, "start", weight="bold")
     sh.scalebar(14, y + 11)
     return sh
+
+
+# ------------------------------------------------ an FMB checked by offsets
+def _ft(q):
+    return (q[0] / 0.3048, q[1] / 0.3048)
+
+
+def _right_angle(sh, corner, size=2.2):
+    """a small square in the corner that opens up and to the right."""
+    x, y = sh.px(corner)
+    sh.out.append(f'<path d="M {x + size:.2f},{y:.2f} L {x + size:.2f},{y - size:.2f} '
+                  f'L {x:.2f},{y - size:.2f}" fill="none" stroke="#8b2f2f" stroke-width="0.22"/>')
+
+
+def x_plan(sh: Sheet, rec: dict, xc: dict, shape: str):
+    """The plot, B's parallel to CD meeting AD at X, and the feet of X, A and B.
+    Measurements only; the arithmetic is on the next sheet."""
+    pt = {k: _ft(v) for k, v in xc["points"].items()}
+    L = lambda a, b: xc["length"](a, b) / 0.3048
+    lab = lambda a, b: f"{a}{b} {L(a, b):.2f}"
+    sh.open()
+    _title(sh, f"{rec['survey']} · {rec['village']} · {rec['taluk']}",
+           f"scale 1:{sh.p.denom} — print at 100% on {sh.p.name}",
+           shape, "north up · every length in feet")
+
+    corners = [pt[k] for k in "ABCD"]
+    for i in range(4):
+        sh.line(corners[i], corners[(i + 1) % 4], "#000", 0.6)
+    sh.line(pt["X"], pt["B"], "#333", 0.35)
+    for top, foot in (("X", "P"), ("A", "Q"), ("B", "R")):
+        sh.line(pt[top], pt[foot], "#8b2f2f", 0.3, dash="1.4 1.0")
+    for k in "PQRY":
+        _right_angle(sh, pt[k])
+
+    # the four recorded sides, outside the plot
+    sh.dim(pt["D"], pt["C"], 17, lab("C", "D") + "  (recorded 45.6 m)")
+    sh.dim(pt["D"], pt["A"], -17, lab("D", "A") + "  (recorded 39.6 m)")
+    sh.dim(pt["A"], pt["B"], -8, lab("A", "B"))
+    sh.dim(pt["B"], pt["C"], -8, lab("B", "C"))
+    # CD and DA split by the construction
+    for a, b in (("D", "P"), ("P", "Q"), ("Q", "R"), ("R", "C")):
+        sh.dim(pt[a], pt[b], 8, lab(a, b))
+    sh.dim(pt["D"], pt["X"], -8, lab("D", "X"))
+    sh.dim(pt["X"], pt["A"], -8, lab("X", "A"))
+    # the parallel, and the three heights
+    sh.dim(pt["X"], pt["Y"], -5, lab("X", "Y"))
+    sh.dim(pt["Y"], pt["B"], -5, lab("Y", "B"))
+    sh.dim(pt["Y"], pt["A"], 5, lab("Y", "A"))
+    sh.dim(pt["P"], pt["X"], 5, lab("P", "X"))
+    sh.dim(pt["Q"], pt["Y"], 5, lab("Q", "Y"))
+    sh.dim(pt["R"], pt["B"], -5, lab("R", "B"))
+    bx, by = sh.px(((pt["X"][0] + pt["B"][0]) / 2, pt["X"][1]))
+    sh.out.append(f'<rect x="{bx - 13:.2f}" y="{by + 1.2:.2f}" width="26" height="4.2" '
+                  f'fill="white"/>')
+    sh.txt(bx, by + 4.4, f"BX {L('X', 'B'):.2f}", 3.3, weight="bold")
+
+    # feet sit just above CD, clear of its dimensions; Y below the parallel,
+    # clear of XY's tick
+    for k, (dx, dy) in dict(A=(0, -5.2), B=(3.4, 0), C=(3.4, 1.2), D=(-3.4, 1.2),
+                            X=(-3.2, -1.2), Y=(-2.8, 4.4), P=(-2.6, -2.4), Q=(-2.6, -2.4),
+                            R=(-2.6, -2.4)).items():
+        x, y = sh.px(pt[k])
+        big = k in "ABCD"
+        sh.txt(x + dx, y + dy + 1.2, k, 5.0 if big else 3.6,
+               weight="bold", fill="#000" if big else "#8b2f2f")
+
+    for name, kind, a, _, _ in xc["pieces"]:
+        poly = [pt[c] for c in name]
+        cx = sum(q[0] for q in poly) / len(poly)
+        cy = sum(q[1] for q in poly) / len(poly)
+        x, y = sh.px((cx, cy))
+        colour = "#1b5e20" if kind == "rectangle" else "#6a1b9a"
+        small = name == "XYA"                        # narrow: smaller type, lifted clear of XY
+        fs, lift = (2.5, 2.0) if small else (3.0, 0.0)
+        sh.txt(x, y - 0.6 - lift, name, fs, weight="bold", fill=colour)
+        sh.txt(x, y + 2.9 - lift, f"{a / 0.3048 ** 2:,.0f} ft²", fs * 0.92, fill=colour)
+    sh.scalebar(14, sh.p.h - 13)
+    return sh
+
+
+def x_schedule(sh: Sheet, rec: dict, xc: dict, shape: str, p: G.Plot, others: list):
+    sh.open()
+    _title(sh, f"{rec['survey']} · areas by offsets", "every length in feet",
+           shape, "north up")
+    L = lambda a, b: xc["length"](a, b) / 0.3048
+    F2, CENT = 1 / 0.3048 ** 2, 435.6
+    rows = []
+    for name, kind, a, (b1, b2), (h1, h2) in xc["pieces"]:
+        base, high = L(b1, b2), L(h1, h2)
+        why = (f"½ × {base:.2f} × {high:.2f}" if kind == "triangle"
+               else f"{base:.2f} × {high:.2f}")
+        rows.append(([f"{kind} {name}", f"{b1}{b2} {base:.2f}, {h1}{h2} {high:.2f}",
+                      why, f"{a * F2:,.1f}", f"{a * F2 / CENT:.2f}", f"{a:.1f}"], False))
+    tot = xc["area_m2"]
+    # a page of its own, so the type can be read at arm's length
+    y = sh.table(14, sh.p.w - 28, 34, "Two rectangles and four right triangles", rows,
+                 foot=["TOTAL", "", "adds back to the plot", f"{tot * F2:,.1f}",
+                       f"{tot * F2 / CENT:.2f}", f"{tot:.1f}"], fs=1.45)
+
+    names = {v: k for k, v in __import__("tslr.survey", fromlist=["letters"]).letters(rec).items()}
+    ang = dict(zip(rec["walk"], p.corner_angles))
+    lines = [
+        "Letters: A at the top, then B, C, D clockwise. On the FMB these are "
+        + ", ".join(f"{k} = corner {v}" for k, v in
+                    __import__("tslr.survey", fromlist=["letters"]).letters(rec).items()
+                    if k != v) + ".",
+        "Corner angles: " + ", ".join(f"{names[k]} {ang[k]:.2f}°" for k in rec["walk"][::-1]) + ".",
+        f"Registered {rec['registered_as']} = {rec['registered_m2']:.0f} m² = "
+        f"{rec['registered_m2'] * F2:,.1f} ft² = {rec['registered_m2'] * F2 / CENT:.2f} cents.",
+    ]
+    y += 8
+    for t in lines:
+        sh.txt(14, y, t, 4.2, "start")
+        y += 7.4
+    y += 4
+    sh.txt(14, y, "The same four sides, closed other ways", 5.0, "start", weight="bold")
+    y += 8
+    for label, area, note in others:
+        sh.txt(18, y, f"{label}", 4.2, "start", weight="bold")
+        sh.txt(85, y, f"{area * F2:,.0f} ft²  =  {area * F2 / CENT:.2f} cents", 4.2, "start")
+        sh.txt(165, y, note, 3.8, "start", fill="#555")
+        y += 7.2
+    return sh
