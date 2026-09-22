@@ -646,3 +646,24 @@ def test_lots_parallel_to_ab_need_the_road_squared_to_ab():
     assert strip.area > 400 * d_strip
     assert abs(min(d.frontages) - math.dist(*[list(d.lots[0].exterior.coords)[i]
                                               for i in (1, 2)])) < 0.01
+
+
+def test_the_sheet_and_the_page_print_the_same_schedule():
+    """Both renderers print this table. While each built its own they drifted:
+    the sheet's zip ran out at the fourth lot, so it dropped three balance
+    parcels and the road, and printed a tally under rows that did not add up."""
+    from tslr.frontage import build, options
+    for o in options():
+        _, f, _ = build(**o)
+        rows = f.rows()
+        assert len(rows) == len(f.pieces()), (o["tag"], len(rows))
+        assert [r[0] for r in rows] == [p.name for p in f.pieces()]
+        # the rows have to add to the tally the sheet prints under them
+        assert abs(sum(r[3] for r in rows) - f.tally()["total"]) < 0.01, o["tag"]
+        assert abs(sum(r[3] for r in rows) - f.land.area) < 0.05, o["tag"]
+        # a landlocked piece has to say so rather than borrow another row's text
+        for name, how, *_ in rows:
+            assert "ft on the road" in how or "landlocked" in how \
+                or "ft long" in how, (o["tag"], name, how)
+            if name == "Road":
+                assert "ft long" in how

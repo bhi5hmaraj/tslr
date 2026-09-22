@@ -312,6 +312,27 @@ class Frontage:
                 return f"{w:.2f} x {d:.2f}"
         return _fan_why(tidy(g))
 
+    def rows(self) -> list[tuple]:
+        """Every piece as the schedule prints it: name, access, working, areas.
+
+        The sheet and the page both print this table. While each built its own
+        the two drifted, and the sheet's zip ran out at the fourth lot, so it
+        dropped the balance parcels and the road and still printed a tally.
+        """
+        out = []
+        for p in self.pieces():
+            if p.name == "Road":
+                how = (f"{self.run:.2f} ft long, "
+                       + (f"{self.gate_end:.2f} to {self.far_end:.2f} ft"
+                          if self.gate_w is not None else f"{self.road_w:.2f} ft wide"))
+            else:
+                w = self.frontage(p.poly)
+                how = (f"{w:.2f} ft on the road" if w > 1.0
+                       else "none — landlocked")
+            out.append((p.name, how, p.why, p.area, p.area / CENT,
+                        p.area * 0.3048 ** 2))
+        return out
+
     def audit(self, tol=0.05):
         """Every piece counted, and the pieces are the whole plot.
 
@@ -509,18 +530,12 @@ SECTION = """<h2>{title} <small>{sub}</small></h2>
 def _section(rec, f, letters, sh_svg) -> str:
     """One option: its drawing, its schedule, and what it costs or buys."""
     rows = ""
-    for p in f.pieces():
-        bal = p.name.startswith("Balance")
-        w = f.frontage(p.poly)
-        rows += (f'<tr{" class=\'bal\'" if bal else ""}><td>{p.name}</td><td>'
-                 + (f"{f.run:.2f} ft along the boundary, {f.road_w:.2f} ft wide"
-                    if p.name == "Road" else
-                    f"{w:.2f} ft" if w > 1.0 else
-                    "<b>none</b> — attach to the lot beside it")
-                 + f'</td><td class="why">{p.why}</td>'
-                   f'<td class="n">{p.area:,.1f}</td>'
-                   f'<td class="n">{p.area / CENT:.2f}</td>'
-                   f'<td class="n">{p.area * 0.3048 ** 2:.1f}</td></tr>')
+    for name, how, why, ft2, c, m2 in f.rows():
+        bal = name.startswith("Balance")
+        rows += (f'<tr{" class=\'bal\'" if bal else ""}><td>{name}</td>'
+                 f'<td>{how.replace("none —", "<b>none</b> —")}</td>'
+                 f'<td class="why">{why}</td><td class="n">{ft2:,.1f}</td>'
+                 f'<td class="n">{c:.2f}</td><td class="n">{m2:.1f}</td></tr>')
     t = f.tally()
     lo, _ = f.widths
     one = f.lots[0]

@@ -126,7 +126,7 @@ class Sheet:
         cols = [x0 + w * sum(cw[:i]) for i in range(6)]
         ts = self.p.ts
         self.txt(x0, y0, head, 3.8 * fs, "start", weight="bold")
-        for cx, h in zip(cols, ["piece", "sides (ft)", "area = base × height",
+        for cx, h in zip(cols, ["piece", "reaches the road", "area = base × height",
                                 "area ft²", "cents", "m²"]):
             self.txt(cx, y0 + 6.5 * ts, h, 2.7 * fs, "start", fill="#666", weight="bold")
         self.line((x0, y0 + 8.4 * ts), (x0 + w, y0 + 8.4 * ts), "#999", 0.2, raw=True)

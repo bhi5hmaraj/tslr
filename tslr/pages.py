@@ -501,30 +501,34 @@ def frontage_schedule(sh: Sheet, rec: dict, f, letters: dict):
     sh.open()
     _title(sh, f"{rec['survey']} · areas", "every length in feet",
            _option(f), "north up")
-    rows = []
-    for i, (p, w) in enumerate(zip(f.pieces(), f.frontages + [None])):
-        rows.append(([p.name,
-                      f"{w:.2f} ft on the road" if w is not None else
-                      f"{f.run:.2f} ft along the boundary, {f.road_w:.2f} ft wide",
-                      p.why, f"{p.area:,.1f}", f"{p.area / CENT:.2f}",
-                      f"{p.area * 0.3048 ** 2:.1f}"], False))
+    rows = [([name, how, why, f"{ft2:,.1f}", f"{c:.2f}", f"{m2:.1f}"], False)
+            for name, how, why, ft2, c, m2 in f.rows()]
     t = f.tally()
-    y = sh.table(14, sh.p.w - 28, 34, "Lots and road, by fans of triangles", rows,
+    y = sh.table(14, sh.p.w - 28, 34,
+                 "Every piece, and the arithmetic behind it", rows,
                  foot=["TALLY", "parts sum to the plot", "", f"{t['total']:,.1f}",
                        f"{t['total'] / CENT:.2f}", f"{t['total'] * 0.3048 ** 2:.1f}"],
-                 fs=1.35, cw=[0.08, 0.17, 0.42, 0.12, 0.10, 0.11])
+                 fs=1.35, cw=[0.10, 0.19, 0.38, 0.12, 0.10, 0.11])
     lo, hi = f.widths
     reg = rec["registered_m2"]
     drawn = f.land.area * 0.3048 ** 2
+    fr = [f.frontage(g) for g in f.lots]
     lines = [
         "Corners keep the FMB's own numbers, with a letter beside each: "
         + ", ".join(f"{v} = {k}" for k, v in letters.items()) + ".",
-        f"The road runs {f.run:.2f} ft up the west boundary from the "
-        f"gate at {letters[rec['road']['gate'].split(',')[0]]}. It is "
-        f"{lo:.2f} ft at its narrowest and {hi:.2f} ft at its widest, because its "
-        f"inner edge is parallel to the boundary.",
-        f"Every lot reaches it: {', '.join(f'{w:.2f}' for w in f.frontages)} ft of "
-        f"frontage, summing to the {math.dist(*f.inner):.2f} ft inner edge.",
+        f"The road runs {f.run:.2f} ft up the west boundary from the gate at "
+        f"{letters[rec['road']['gate'].split(',')[0]]}. It is {lo:.2f} ft at its "
+        f"narrowest and {hi:.2f} ft at its widest, "
+        + ("because it is set out wider at the gate and tapers away from it."
+           if f.gate_w is not None else
+           "because its inner edge is parallel to the boundary."),
+        (f"Every lot reaches it: {', '.join(f'{x:.2f}' for x in fr)} ft of frontage."
+         if min(fr) > 1.0 else
+         f"No lot reaches it. A "
+         f"{f.balance[f.balance_where.index('road side')].area:,.0f} ft² strip runs "
+         f"between the lots and the road, because the lots are set out parallel to "
+         f"AB and the road's inner edge is not square to AB. That strip has to join "
+         f"the road or the lots before this can be sold."),
         f"Registered {rec['registered_as']} = {reg:,.0f} m². The FMB's own line "
         f"work encloses {drawn:,.1f} m², which is {drawn - reg:+.1f} m² "
         f"({(drawn / reg - 1) * 100:+.2f}%) against it.",
