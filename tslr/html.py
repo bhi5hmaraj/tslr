@@ -26,7 +26,8 @@ TEMPLATE = """<!doctype html>
   <header>
     <h1>{survey} · {ward}</h1>
     <div class="meta"><span id="l-closure"></span> <span id="area"></span> ·
-      <span id="l-slant"></span> <span id="slant"></span>°</div>
+      <span id="l-slant"></span> <span id="slant"></span>° ·
+      <a href="176-9B2.html">S.No 176/9B2 &rarr;</a></div>
   </header>
   <button id="panel" title="hide the panel"></button>
   <svg id="plan"></svg>

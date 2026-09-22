@@ -39,9 +39,10 @@ class Sheet:
     def __init__(self, carve, paper: Paper = A4):
         self.c, self.p = carve, paper
         self.sc = 0.3048 * 1000 / paper.denom          # mm per foot
-        # a bare Plot draws as well as a Carve: only the boundary sets the frame
+        # a bare Plot or polygon draws as well as a Carve: only the boundary
+        # sets the frame
         plot = getattr(carve, "plot", carve)
-        self.minx, self.miny, self.maxx, self.maxy = plot.quad.bounds
+        self.minx, self.miny, self.maxx, self.maxy = getattr(plot, "quad", plot).bounds
         self.plan_w = (self.maxx - self.minx) * self.sc
         self.plan_h = (self.maxy - self.miny) * self.sc
         self.ox = (paper.w - self.plan_w) / 2
@@ -119,8 +120,9 @@ class Sheet:
                         f'fill="white" opacity=".85"/>')
         self.txt(mx, my + 0.9, f"h {h:.2f}", 2.5, fill="#8b2f2f")
 
-    def table(self, x0, w, y0, head, rows, foot=None, fs=1.0):
-        cw = [0.11, 0.30, 0.24, 0.12, 0.11, 0.12]
+    def table(self, x0, w, y0, head, rows, foot=None, fs=1.0, cw=None):
+        # a page whose arithmetic is long needs the width spent differently
+        cw = cw or [0.11, 0.30, 0.24, 0.12, 0.11, 0.12]
         cols = [x0 + w * sum(cw[:i]) for i in range(6)]
         ts = self.p.ts
         self.txt(x0, y0, head, 3.8 * fs, "start", weight="bold")

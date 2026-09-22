@@ -378,3 +378,132 @@ def x_schedule(sh: Sheet, rec: dict, xc: dict, shape: str, p: G.Plot, others: li
         sh.txt(165, y, note, 3.8, "start", fill="#555")
         y += 7.2
     return sh
+
+
+# ------------------------------------------- a road down one side, equal lots
+def _poly_ft(g):
+    return [(x, y) for x, y in g.exterior.coords[:-1]]
+
+
+def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
+    """The plot, the common road down one boundary, and the lots behind it.
+
+    Measurements only. The arithmetic that adds them back to the plot is on the
+    sheet after this one.
+    """
+    FT = 1 / 0.3048
+    corner = {k: (x * FT, y * FT) for k, (x, y) in zip(rec["walk"], rec["corners_m"])}
+    sh.open()
+    _title(sh, f"{rec['survey']} · {rec['village']} · {rec['taluk']}",
+           "north up · every length in feet" if web else
+           f"scale 1:{sh.p.denom} — print at 100% on {sh.p.name}",
+           f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} EQUAL LOTS",
+           "" if web else "north up · every length in feet")
+
+    sh.path(f.road, fill="#f1f1f1", stroke="none")
+    for g in f.lots:
+        sh.path(g, stroke="#1b5e20", width=0.35)
+    sh.path(f.land, stroke="#000", width=0.7)
+
+    # the four recorded sides, outside the plot, plus the road's inner edge
+    walk = rec["walk"]
+    for i, k in enumerate(walk):
+        a, b = corner[k], corner[walk[(i + 1) % len(walk)]]
+        lab = f"{letters[k]}{letters[walk[(i + 1) % len(walk)]]} " \
+              f"{math.dist(a, b):.2f}"
+        sh.dim(a, b, -11, lab)
+
+    # what each lot fronts onto, read along that inner edge
+    (ux, uy) = f.u
+    run = 0.0
+    for i, g in enumerate(f.lots):
+        w = f.frontage(g)
+        p0 = (f.inner[0][0] + ux * run, f.inner[0][1] + uy * run)
+        p1 = (f.inner[0][0] + ux * (run + w), f.inner[0][1] + uy * (run + w))
+        sh.dim(p0, p1, 4, f"{w:.2f}", colour="#1b5e20")
+        run += w
+    sh.dim(corner[rec["road"]["along"].split("-")[0]], f.inner[0], -4,
+           f"{f.road_w:.2f}", colour="#a00")
+
+    for i, g in enumerate(f.lots):
+        c = g.representative_point()
+        x, y = sh.px((c.x, c.y))
+        sh.txt(x, y - 1.0, f"LOT {i + 1}", 4.0, weight="bold", fill="#1b5e20")
+        sh.txt(x, y + 4.0, f"{g.area:,.0f} ft²", 3.2, fill="#1b5e20")
+        sh.txt(x, y + 8.0, f"{g.area / G.CENT:.2f} cents", 3.0, fill="#1b5e20")
+    c = f.road.representative_point()
+    x, y = sh.px((c.x, c.y))
+    sh.txt(x, y, f"COMMON ROAD {f.road_w:.0f} ft", 3.4, weight="bold",
+           fill="#555", rot=-78)
+
+    # the gate, at the corner the record names
+    g0 = corner[rec["road"]["gate"].split(",")[0]]
+    gx, gy = sh.px(g0)
+    sh.txt(gx - 4, gy + 9, "GATE", 3.4, "end", weight="bold", fill="#a00")
+    sh.line((gx - 3, gy + 7.5), (gx + 2, gy + 2.5), "#a00", 0.6, raw=True)
+
+    for k, p in corner.items():
+        x, y = sh.px(p)
+        sh.out.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.1" fill="#000"/>')
+        sh.txt(x + 4.5, y - 2.5, f"{letters[k]}", 4.6, weight="bold")
+        sh.txt(x + 4.5, y + 1.8, f"({k})", 2.8, fill="#777")
+    # a screen has no scale, and the 100 mm check bar means nothing on one
+    if not web:
+        sh.scalebar(14, sh.p.h - 13)
+    return sh
+
+
+def frontage_schedule(sh: Sheet, rec: dict, f, letters: dict):
+    """The arithmetic, and the check that it adds back to the registered plot."""
+    F2, CENT = 1 / 0.3048 ** 2, G.CENT
+    sh.open()
+    _title(sh, f"{rec['survey']} · areas", "every length in feet",
+           f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} EQUAL LOTS", "north up")
+    rows = []
+    for i, (p, w) in enumerate(zip(f.pieces(), f.frontages + [None])):
+        rows.append(([p.name,
+                      f"{w:.2f} ft on the road" if w is not None else
+                      f"{f.run:.2f} ft along the boundary, {f.road_w:.2f} ft wide",
+                      p.why, f"{p.area:,.1f}", f"{p.area / CENT:.2f}",
+                      f"{p.area * 0.3048 ** 2:.1f}"], False))
+    t = f.tally()
+    y = sh.table(14, sh.p.w - 28, 34, "Lots and road, by fans of triangles", rows,
+                 foot=["TALLY", "parts sum to the plot", "", f"{t['total']:,.1f}",
+                       f"{t['total'] / CENT:.2f}", f"{t['total'] * 0.3048 ** 2:.1f}"],
+                 fs=1.35, cw=[0.08, 0.17, 0.42, 0.12, 0.10, 0.11])
+    lo, hi = f.widths
+    reg = rec["registered_m2"]
+    drawn = f.land.area * 0.3048 ** 2
+    lines = [
+        "Corners keep the FMB's own numbers, with a letter beside each: "
+        + ", ".join(f"{v} = {k}" for k, v in letters.items()) + ".",
+        f"The road runs {f.run:.2f} ft up the west boundary from the "
+        f"gate at {letters[rec['road']['gate'].split(',')[0]]}. It is "
+        f"{lo:.2f} ft at its narrowest and {hi:.2f} ft at its widest, because its "
+        f"inner edge is parallel to the boundary.",
+        f"Every lot reaches it: {', '.join(f'{w:.2f}' for w in f.frontages)} ft of "
+        f"frontage, summing to the {math.dist(*f.inner):.2f} ft inner edge.",
+        f"Registered {rec['registered_as']} = {reg:,.0f} m². The FMB's own line "
+        f"work encloses {drawn:,.1f} m², which is {drawn - reg:+.1f} m² "
+        f"({(drawn / reg - 1) * 100:+.2f}%) against it.",
+        f"Road takes {t['road'] / t['plot']:.1%} of the plot. Nothing is wasted: "
+        f"the {f.n} lots and the road are the whole of it.",
+    ]
+    y += 8
+    for s in lines:
+        for line in _wrap(s, 112):
+            sh.txt(14, y, line, 3.6, "start")
+            y += 5.0
+        y += 2.6
+    return sh
+
+
+def _wrap(s, n):
+    out, line = [], ""
+    for w in s.split():
+        if len(line) + len(w) + 1 > n:
+            out.append(line)
+            line = w
+        else:
+            line = f"{line} {w}".strip()
+    return out + ([line] if line else [])

@@ -498,3 +498,62 @@ def test_the_published_page_matches_the_source():
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+def test_the_west_road_carves_176_9b2_into_four_equal_lots():
+    """176/9B2 is a pentagon whose road runs up the west side, so neither
+    `Plot` nor `Fan` fits it. The carve still has to reconcile."""
+    import math
+    from shapely.geometry import Polygon
+    from tslr.frontage import Frontage, build
+
+    rec, f, letters = build("176-9B2", road_w=23.0, n=4)
+
+    # the FMB's own line work agrees with its own register, unlike TS 11/14/18
+    drawn = f.land.area * 0.3048 ** 2
+    assert abs(drawn - rec["registered_m2"]) < 3.0, drawn
+    # and it carries the written sides
+    walk, q = rec["walk"], rec["corners_m"]
+    for i, k in enumerate(walk):
+        j = (i + 1) % len(walk)
+        got = math.dist(q[i], q[j])
+        assert abs(got - rec["sides_m"][f"{k}-{walk[j]}"]) < 0.4, (k, got)
+
+    # the carve: nothing wasted, nothing over, every lot equal
+    t = f.tally()
+    assert abs(t["total"] - f.land.area) < 0.01
+    assert t["waste"] == 0.0
+    areas = [g.area for g in f.lots]
+    assert max(areas) - min(areas) < 0.01, areas
+    assert abs(sum(areas) + f.road.area - f.land.area) < 0.01
+
+    # the road is 23 ft at its narrowest, which is what was asked for
+    lo, hi = f.widths
+    assert abs(lo - 23.0) < 1e-6 and abs(hi - 23.0) < 1e-6, (lo, hi)
+    # it runs the full west boundary, from the gate at the south-west corner
+    assert abs(f.run - math.dist(q[4], q[0]) / 0.3048) < 0.01
+    assert letters[rec["walk"][4]] == "E"
+
+    # every lot reaches it, and the frontages tile the inner edge
+    fr = f.frontages
+    assert min(fr) > 20.0, fr
+    assert abs(sum(fr) - math.dist(*f.inner)) < 0.01
+
+    # the audit bites when the road cannot fit
+    with pytest.raises(AssertionError):
+        Frontage(f.land, edge=rec["road"]["edge"], road_w=400.0, n=4)
+    # and a lot count the land cannot carry is refused rather than drawn
+    wide = Frontage(f.land, edge=rec["road"]["edge"], road_w=23.0, n=8)
+    assert abs(sum(g.area for g in wide.lots) + wide.road.area - f.land.area) < 0.01
+
+
+def test_the_176_9b2_page_matches_the_source():
+    """The published page is generated, so it must not drift from the module."""
+    import tempfile
+    from pathlib import Path
+    from tslr.frontage import page
+    live = Path("site/176-9B2.html")
+    assert live.exists(), "run python -m tslr.frontage"
+    with tempfile.TemporaryDirectory() as tmp:
+        fresh = page(Path(tmp) / "p.html").read_text()
+    assert fresh == live.read_text(), "site/176-9B2.html is stale"

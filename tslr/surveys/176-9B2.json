@@ -1,0 +1,21 @@
+{
+  "key": "176-9B2",
+  "survey": "S.No 176/9B2",
+  "village": "Uththangudi (R)",
+  "taluk": "Madurai East",
+  "district": "Madurai",
+  "scale": 430,
+  "approved": "2026-05-30",
+  "issued": "2026-08-26",
+  "source": "Downloads/TN%20DDTTVVV-9B2.pdf, Survey and Settlement Department FMB",
+  "walk": ["52", "42", "D", "3", "43"],
+  "corners_m": [[31.09, 80.24], [68.72, 76.00], [62.95, 31.55], [29.43, 32.46], [21.09, 34.74]],
+  "corners_how": "Read off the FMB's own vector line work, not off the pixels. pdftocairo -svg gives the boundary as exact PDF-point coordinates; at the stated 1:430 the four measurable sides land within 0.34 m of their written figures, and the enclosed area within 0.1 percent of the register.",
+  "sides_m": {"52-42": 38.2, "42-D": 45.0, "D-3": 33.6, "3-43": 8.6, "43-52": 46.6},
+  "registered_m2": 1850.0,
+  "registered_as": "Hect 00 Ares 18 Sqm 50",
+  "north_ticks_m": {"10E4": 9.0, "10E3": 10.0, "10E2": 10.0, "10E1": 9.6},
+  "neighbours": {"north": "10E4, 10E3, 10E2, 10E1", "west": "9A3A1A",
+                 "east": "road (thick on the FMB)", "south": "road (thick on the FMB)"},
+  "road": {"along": "43-52", "edge": 4, "width_ft": 23.0, "gate": "43, the south-west corner"}
+}
