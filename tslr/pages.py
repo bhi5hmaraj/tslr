@@ -381,6 +381,12 @@ def x_schedule(sh: Sheet, rec: dict, xc: dict, shape: str, p: G.Plot, others: li
 
 
 # ------------------------------------------- a road down one side, equal lots
+def _option(f) -> str:
+    kind = ("IDENTICAL RECTANGLES, BALANCE SEPARATE" if f.shape == "rect"
+            else "EQUAL LOTS, NOTHING LEFT OVER")
+    return f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} {kind}"
+
+
 def _poly_ft(g):
     return [(x, y) for x, y in g.exterior.coords[:-1]]
 
@@ -397,10 +403,11 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
     _title(sh, f"{rec['survey']} · {rec['village']} · {rec['taluk']}",
            "north up · every length in feet" if web else
            f"scale 1:{sh.p.denom} — print at 100% on {sh.p.name}",
-           f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} EQUAL LOTS",
-           "" if web else "north up · every length in feet")
+           _option(f), "" if web else "north up · every length in feet")
 
     sh.path(f.road, fill="#f1f1f1", stroke="none")
+    for g in f.balance:
+        sh.path(g, fill="#fdf3e3", stroke="#c98a1e", width=0.3, dash="1.6 1.1")
     for g in f.lots:
         sh.path(g, stroke="#1b5e20", width=0.35)
     sh.path(f.land, stroke="#000", width=0.7)
@@ -422,6 +429,9 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         p1 = (f.inner[0][0] + ux * (run + w), f.inner[0][1] + uy * (run + w))
         sh.dim(p0, p1, 4, f"{w:.2f}", colour="#1b5e20")
         run += w
+    if f.shape == "rect":
+        q = list(f.lots[0].exterior.coords[:-1])
+        sh.dim(q[1], q[2], -4, f"depth {math.dist(q[1], q[2]):.2f}", colour="#1b5e20")
     sh.dim(corner[rec["road"]["along"].split("-")[0]], f.inner[0], -4,
            f"{f.road_w:.2f}", colour="#a00")
 
@@ -431,6 +441,27 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         sh.txt(x, y - 1.0, f"LOT {i + 1}", 4.0, weight="bold", fill="#1b5e20")
         sh.txt(x, y + 4.0, f"{g.area:,.0f} ft²", 3.2, fill="#1b5e20")
         sh.txt(x, y + 8.0, f"{g.area / G.CENT:.2f} cents", 3.0, fill="#1b5e20")
+    # A balance parcel is thin, so its figures will not sit on it without
+    # covering a boundary or a dimension. It carries a numbered tag instead,
+    # and the numbers are spelled out under the drawing.
+    for i, (w, g) in enumerate(zip(f.balance_where, f.balance), 1):
+        c = g.representative_point()
+        x, y = sh.px((c.x, c.y))
+        sh.out.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2.6" fill="#fff" '
+                      f'stroke="#c98a1e" stroke-width="0.4"/>')
+        sh.txt(x, y + 1.3, str(i), 3.3, weight="bold", fill="#c98a1e")
+    ly = sh.p.h - 34
+    if f.balance:
+        sh.txt(14, ly, "BALANCE, not spoken for", 3.0, "start", weight="bold",
+               fill="#c98a1e")
+        for i, (w, g) in enumerate(zip(f.balance_where, f.balance), 1):
+            free = f.frontage(g) > 1.0
+            ly += 4.4
+            sh.txt(15, ly, f"{i}", 2.9, "start", weight="bold", fill="#c98a1e")
+            sh.txt(19, ly, f"{w} — {g.area:,.0f} ft² · {g.area / G.CENT:.2f} cents · "
+                   + (f"{f.frontage(g):.2f} ft on the road" if free
+                      else "no frontage, attach to the lot beside it"),
+                   2.9, "start", fill="#555" if free else "#a00")
     c = f.road.representative_point()
     x, y = sh.px((c.x, c.y))
     sh.txt(x, y, f"COMMON ROAD {f.road_w:.0f} ft", 3.4, weight="bold",
@@ -458,7 +489,7 @@ def frontage_schedule(sh: Sheet, rec: dict, f, letters: dict):
     F2, CENT = 1 / 0.3048 ** 2, G.CENT
     sh.open()
     _title(sh, f"{rec['survey']} · areas", "every length in feet",
-           f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} EQUAL LOTS", "north up")
+           _option(f), "north up")
     rows = []
     for i, (p, w) in enumerate(zip(f.pieces(), f.frontages + [None])):
         rows.append(([p.name,
@@ -486,8 +517,11 @@ def frontage_schedule(sh: Sheet, rec: dict, f, letters: dict):
         f"Registered {rec['registered_as']} = {reg:,.0f} m². The FMB's own line "
         f"work encloses {drawn:,.1f} m², which is {drawn - reg:+.1f} m² "
         f"({(drawn / reg - 1) * 100:+.2f}%) against it.",
-        f"Road takes {t['road'] / t['plot']:.1%} of the plot. Nothing is wasted: "
-        f"the {f.n} lots and the road are the whole of it.",
+        (f"Road takes {t['road'] / t['plot']:.1%} of the plot. The {f.n} lots, the "
+         f"{len(f.balance)} balance parcels and the road are the whole of it."
+         if f.balance else
+         f"Road takes {t['road'] / t['plot']:.1%} of the plot. Nothing is wasted: "
+         f"the {f.n} lots and the road are the whole of it."),
     ]
     y += 8
     for s in lines:

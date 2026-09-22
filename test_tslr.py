@@ -522,7 +522,7 @@ def test_the_west_road_carves_176_9b2_into_four_equal_lots():
     # the carve: nothing wasted, nothing over, every lot equal
     t = f.tally()
     assert abs(t["total"] - f.land.area) < 0.01
-    assert t["waste"] == 0.0
+    assert t["balance"] == 0.0, "filling the land leaves nothing over"
     areas = [g.area for g in f.lots]
     assert max(areas) - min(areas) < 0.01, areas
     assert abs(sum(areas) + f.road.area - f.land.area) < 0.01
@@ -557,3 +557,46 @@ def test_the_176_9b2_page_matches_the_source():
     with tempfile.TemporaryDirectory() as tmp:
         fresh = page(Path(tmp) / "p.html").read_text()
     assert fresh == live.read_text(), "site/176-9B2.html is stale"
+
+
+def test_rectangular_lots_stand_on_the_road_and_the_balance_is_named():
+    """The rectangle option trades land for square corners. It must not trade
+    away road access, and the land it gives up has to stay accounted for."""
+    import math
+    from tslr.frontage import Frontage, build
+
+    rec, f, letters = build("176-9B2", road_w=23.0, n=4, shape="rect")
+
+    # identical rectangles, and actually rectangles
+    for g in f.lots:
+        q = list(g.exterior.coords[:-1])
+        assert len(q) == 4, q
+        v = lambda i: (q[(i + 1) % 4][0] - q[i][0], q[(i + 1) % 4][1] - q[i][1])
+        for i in range(4):
+            a, b = v(i), v((i + 1) % 4)
+            assert abs(a[0] * b[0] + a[1] * b[1]) < 1e-6, "corner is not square"
+        assert abs(g.area - f.lots[0].area) < 0.01
+    w, d = (math.dist(q[0], q[1]), math.dist(q[1], q[2]))
+    assert abs(w * d - f.lots[0].area) < 0.05
+
+    # the near side is pinned to the road, so no lot is landlocked
+    for g in f.lots:
+        assert abs(f.frontage(g) - w) < 0.01, f.frontage(g)
+    # and the block really fits: this is the constraint the search must respect
+    assert f.region.buffer(1e-7).contains(f.block)
+    assert sum(g.intersection(f.road).area for g in f.lots) < 1e-6
+
+    # the balance is named by where it lies, and still counted
+    t = f.tally()
+    assert set(f.balance_where) == {"south", "behind", "north"}, f.balance_where
+    assert abs(t["total"] - f.land.area) < 0.01
+    assert abs(t["lots"] + t["balance"] + t["road"] - f.land.area) < 0.01
+    assert t["balance"] > 0
+    # the south parcel is the one worth selling: it reaches the road
+    south = f.balance[f.balance_where.index("south")]
+    assert f.frontage(south) > 10.0
+
+    # squaring the corners costs lot area against the option that fills the land
+    _, fan, _ = build("176-9B2", road_w=23.0, n=4, shape="fan")
+    assert f.lots[0].area < fan.lots[0].area
+    assert abs(fan.tally()["total"] - f.tally()["total"]) < 0.01
