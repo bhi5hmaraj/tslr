@@ -384,7 +384,11 @@ def x_schedule(sh: Sheet, rec: dict, xc: dict, shape: str, p: G.Plot, others: li
 def _option(f) -> str:
     kind = ("IDENTICAL RECTANGLES, BALANCE SEPARATE" if f.shape == "rect"
             else "EQUAL LOTS, NOTHING LEFT OVER")
-    return f"COMMON ROAD {f.road_w:.0f} FT WEST · {f.n} {kind}"
+    road = (f"COMMON ROAD {f.gate_end:.0f} FT AT THE GATE NARROWING TO "
+            f"{f.road_w:.0f} FT" if f.gate_w is not None
+            else f"COMMON ROAD {f.road_w:.0f} FT WEST")
+    par = " · LOTS PARALLEL TO AB" if f.square_to is not None else ""
+    return f"{road} · {f.n} {kind}{par}"
 
 
 def _poly_ft(g):
@@ -421,19 +425,26 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         sh.dim(a, b, -11, lab)
 
     # what each lot fronts onto, read along that inner edge
-    (ux, uy) = f.u
+    # lots set out parallel to another boundary do not divide the road's edge
+    # between them, so there is nothing to dimension along it
+    (ux, uy) = f.iu
     run = 0.0
     for i, g in enumerate(f.lots):
         w = f.frontage(g)
+        if w < 1.0:
+            continue
         p0 = (f.inner[0][0] + ux * run, f.inner[0][1] + uy * run)
         p1 = (f.inner[0][0] + ux * (run + w), f.inner[0][1] + uy * (run + w))
         sh.dim(p0, p1, 4, f"{w:.2f}", colour="#1b5e20")
         run += w
     if f.shape == "rect":
         q = list(f.lots[0].exterior.coords[:-1])
-        sh.dim(q[1], q[2], -4, f"depth {math.dist(q[1], q[2]):.2f}", colour="#1b5e20")
+        sh.dim(q[0], q[1], -4, f"{math.dist(q[0], q[1]):.2f}", colour="#1b5e20")
+        sh.dim(q[1], q[2], -4, f"{math.dist(q[1], q[2]):.2f}", colour="#1b5e20")
     sh.dim(corner[rec["road"]["along"].split("-")[0]], f.inner[0], -4,
-           f"{f.road_w:.2f}", colour="#a00")
+           f"{f.gate_end:.2f}", colour="#a00")
+    if f.gate_w is not None:
+        sh.dim(corner[rec["walk"][0]], f.inner[1], 4, f"{f.far_end:.2f}", colour="#a00")
 
     for i, g in enumerate(f.lots):
         c = g.representative_point()

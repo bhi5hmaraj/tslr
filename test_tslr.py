@@ -600,3 +600,49 @@ def test_rectangular_lots_stand_on_the_road_and_the_balance_is_named():
     _, fan, _ = build("176-9B2", road_w=23.0, n=4, shape="fan")
     assert f.lots[0].area < fan.lots[0].area
     assert abs(fan.tally()["total"] - f.tally()["total"]) < 0.01
+
+
+def test_lots_parallel_to_ab_need_the_road_squared_to_ab():
+    """A rectangle lies flush only against a line it is parallel to. So lots set
+    out parallel to AB reach the road along their whole side at one gate width
+    and no other, and the option that misses it leaves them landlocked."""
+    import math
+    from shapely.geometry import Polygon
+    from tslr.frontage import build, flush_gate, options
+
+    by = {o["tag"]: build(**o) for o in options()}
+    _, c, _ = by["C"]        # 31 ft at the gate, as asked for
+    rec, d, letters = by["D"]  # the gate width that squares the edge to AB
+
+    land = Polygon([(x / 0.3048, y / 0.3048) for x, y in rec["corners_m"]])
+    gate = flush_gate(land, rec["road"]["edge"], 0, 23.0)
+    assert 38.5 < gate < 39.5, gate
+    assert gate > 31.0, "31 ft cannot be the flush width, or there is no finding"
+
+    for f in (c, d):
+        # both hold the promised narrowest width, and both tally
+        lo, hi = f.widths
+        assert abs(lo - 23.0) < 1e-6, lo
+        assert hi > lo, "a tapered road has to be wider somewhere"
+        assert abs(f.tally()["total"] - f.land.area) < 0.01
+        # and both really are rectangles parallel to AB
+        q = list(f.lots[0].exterior.coords[:-1])
+        ab = (rec["corners_m"][1][0] - rec["corners_m"][0][0],
+              rec["corners_m"][1][1] - rec["corners_m"][0][1])
+        side = (q[1][0] - q[0][0], q[1][1] - q[0][1])
+        cross = abs(side[0] * ab[1] - side[1] * ab[0]) / math.hypot(*side) / math.hypot(*ab)
+        assert cross < 1e-6, "the lot is not parallel to AB"
+
+    # C misses it, so a strip runs between the block and the road
+    assert min(c.frontages) < 1.0, "C should leave the lots off the road"
+    assert "road side" in c.balance_where
+    strip = c.balance[c.balance_where.index("road side")]
+    assert strip.area > 400, strip.area
+    # D meets it, so every lot fronts the road along its whole side. What is
+    # left on the road side is float noise, not land: C's strip is 1,800 times it
+    assert min(d.frontages) > 30.0, d.frontages
+    d_strip = sum(g.area for w, g in zip(d.balance_where, d.balance) if w == "road side")
+    assert d_strip < 1.0, d_strip
+    assert strip.area > 400 * d_strip
+    assert abs(min(d.frontages) - math.dist(*[list(d.lots[0].exterior.coords)[i]
+                                              for i in (1, 2)])) < 0.01

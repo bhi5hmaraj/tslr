@@ -15,7 +15,8 @@ import numpy as np
 from shapely.geometry import Polygon
 
 from .geometry import CENT, TOL, Piece, tidy
-from .optimize_lot import _band, _cuts_equal_land, _fan_why, _parts, _profile
+from .optimize_lot import (_band, _cuts_equal_land, _fan_why, _parts,
+                           _profile, inscribed)
 
 
 def _unit(a, b):
@@ -42,9 +43,11 @@ class Frontage:
     """
     land: Polygon
     edge: int = 0                # which boundary the road runs along
-    road_w: float = 23.0
+    road_w: float = 23.0         # at the far end, and the narrowest it may get
     n: int = 4
     shape: str = "fan"           # "fan" or "rect"
+    gate_w: float | None = None  # at the gate end; None keeps it constant
+    square_to: int | None = None  # edge the rectangles run parallel to
 
     def __post_init__(self):
         q = list(self.land.exterior.coords[:-1])
@@ -56,15 +59,29 @@ class Frontage:
             nx, ny = -nx, -ny
         self.u, self.normal, self.a, self.b = u, (nx, ny), a, b
 
-        # the strip within road_w of the frontage line, clipped to the land
-        L = 900.0
-        off = lambda p, t: (p[0] + nx * t, p[1] + ny * t)
-        band = Polygon([(a[0] - u[0] * L, a[1] - u[1] * L),
-                        (b[0] + u[0] * L, b[1] + u[1] * L),
-                        off((b[0] + u[0] * L, b[1] + u[1] * L), self.road_w),
-                        off((a[0] - u[0] * L, a[1] - u[1] * L), self.road_w)])
-        self.road = self.land.intersection(band)
-        self.region = self.land.difference(band)
+        # The strip between the frontage line and a straight inner edge. With
+        # gate_w set the two ends differ, so the road tapers: the inner edge is
+        # still one straight line, it just is not parallel to the boundary.
+        w0 = self.road_w if self.gate_w is None else self.gate_w
+        w1 = self.road_w
+        for _ in range(8):
+            self._strip(w0, w1)
+            if self.gate_w is None or self.region.is_empty:
+                break
+            # The inner edge leaves the plot past the far corner, where the
+            # north boundary cuts it, and the perpendicular width there falls
+            # short of what was asked for. Open the road until it does not.
+            lo, _ = self.widths
+            if lo >= self.road_w - 1e-9:
+                break
+            short = self.road_w - lo
+            w1 += short
+            # Lots set out parallel to another boundary only lie flush while the
+            # inner edge stays square to it, so that edge may be moved but not
+            # turned. Opening one end alone turns it, and the search runs away.
+            if self.square_to is not None:
+                w0 += short
+        self.gate_end, self.far_end = w0, w1
 
         # a road wider than the plot leaves nothing to cut, and every figure
         # below would be measured off an empty shape
@@ -76,7 +93,9 @@ class Frontage:
         lo, hi = min(ts), max(ts)
         self.inner_ends = self._inner_ends()
         if self.shape == "rect":
-            self.lots, self.balance, self.cuts = self._rectangles()
+            self.lots, self.balance, self.cuts = (
+                self._angled_rectangles() if self.square_to is not None
+                else self._rectangles())
         else:
             cuts = _cuts_equal_land(self.region, a, u, lo, hi, self.n)
             edges = [lo, *cuts, hi]
@@ -86,19 +105,49 @@ class Frontage:
         self.inner = self.inner_ends
         self.audit()
 
+    def _strip(self, w0: float, w1: float):
+        """Lay the road with these two widths, and keep what it leaves."""
+        a, b, u, (nx, ny), L = self.a, self.b, self.u, self.normal, 900.0
+        q0 = (a[0] + nx * w0, a[1] + ny * w0)          # inner edge at the gate
+        q1 = (b[0] + nx * w1, b[1] + ny * w1)          # and at the far end
+        (iu, _) = _unit(q0, q1)
+        # everything on the boundary's side of the inner edge, as a rectangle
+        # standing on that line. Joining the two edges into a quad instead makes
+        # a bowtie once they are extended far enough to cross, and a tapered
+        # road's edges always cross somewhere.
+        side = (-iu[1], iu[0])
+        if side[0] * (a[0] - q0[0]) + side[1] * (a[1] - q0[1]) < 0:
+            side = (-side[0], -side[1])
+        band = Polygon([(q0[0] - iu[0] * L, q0[1] - iu[1] * L),
+                        (q1[0] + iu[0] * L, q1[1] + iu[1] * L),
+                        (q1[0] + iu[0] * L + side[0] * L, q1[1] + iu[1] * L + side[1] * L),
+                        (q0[0] - iu[0] * L + side[0] * L, q0[1] - iu[1] * L + side[1] * L)])
+        self.q0, self.q1, self.iu = q0, q1, iu
+        self.road = self.land.intersection(band)
+        self.region = self.land.difference(band)
+
+    def _on_inner(self, p) -> bool:
+        """Is this point on the road's inner edge?
+
+        Measured against that edge's own line. A tapered road's inner edge is
+        not a constant offset from the boundary, so offset cannot answer it.
+        """
+        return abs(-self.iu[1] * (p[0] - self.q0[0])
+                   + self.iu[0] * (p[1] - self.q0[1])) < 0.02
+
     def _inner_ends(self):
         """The road's inner edge, gate end first.
 
-        It is the part of the road's own boundary sitting at road_w. Taking the
-        region's extent instead overstates it, because the plot's north-east
-        corner reaches past the top of the strip.
+        It is the part of the road's own boundary lying on that edge. Taking
+        the region's extent instead overstates it, because the plot's
+        north-east corner reaches past the top of the strip.
         """
-        a, u, (nx, ny) = self.a, self.u, self.normal
-        ts = [(p[0] - a[0]) * u[0] + (p[1] - a[1]) * u[1]
-              for p in self.road.exterior.coords
-              if abs(nx * (p[0] - a[0]) + ny * (p[1] - a[1]) - self.road_w) < 0.02]
-        off = (a[0] + nx * self.road_w, a[1] + ny * self.road_w)
-        return [(off[0] + u[0] * t, off[1] + u[1] * t) for t in (min(ts), max(ts))]
+        ts = [(p[0] - self.q0[0]) * self.iu[0] + (p[1] - self.q0[1]) * self.iu[1]
+              for p in self.road.exterior.coords if self._on_inner(p)]
+        if not ts:
+            raise AssertionError("the road has no inner edge inside the plot")
+        return [(self.q0[0] + self.iu[0] * t, self.q0[1] + self.iu[1] * t)
+                for t in (min(ts), max(ts))]
 
     def _local(self, p):
         """A point as (along the road, out from the frontage line)."""
@@ -108,6 +157,50 @@ class Frontage:
     def _world(self, x, y):
         return (self.a[0] + self.u[0] * x + self.normal[0] * y,
                 self.a[1] + self.u[1] * x + self.normal[1] * y)
+
+    def _angled_rectangles(self):
+        """`n` rectangles set out parallel to another boundary.
+
+        Pinning the near side to the road is no longer possible: a rectangle
+        can only lie flush against a line it is parallel to. So this takes the
+        largest rectangle at the asked-for bearing and slices it, and whatever
+        sits between it and the road falls out as balance. How much that is
+        depends on the angle between the two, which the road's taper controls.
+        """
+        q = list(self.land.exterior.coords[:-1])
+        e0, e1 = q[self.square_to], q[(self.square_to + 1) % len(q)]
+        theta = math.degrees(math.atan2(e1[1] - e0[1], e1[0] - e0[0]))
+        area, box = inscribed(self.region, theta)
+        if area <= 0:
+            raise AssertionError(f"no rectangle at {theta:.2f} deg fits the land")
+        self.block, self.lot_angle = Polygon(box), theta
+
+        # box comes back as (xa,y0), (xb,y0), (xb,y1), (xa,y1) in that frame, so
+        # slicing between the first and last edge stacks the lots along the road
+        w = [((box[3][0] - box[0][0]) * i / self.n,
+              (box[3][1] - box[0][1]) * i / self.n) for i in range(self.n + 1)]
+        lots = [Polygon([(box[0][0] + w[i][0], box[0][1] + w[i][1]),
+                         (box[1][0] + w[i][0], box[1][1] + w[i][1]),
+                         (box[1][0] + w[i + 1][0], box[1][1] + w[i + 1][1]),
+                         (box[0][0] + w[i + 1][0], box[0][1] + w[i + 1][1])])
+                for i in range(self.n)]
+        self.depth = math.dist(box[0], box[1])
+        rest = self.region.difference(self.block.buffer(1e-9))
+        # named by which side of the block they fall on, in the block's own frame
+        (bu, _) = _unit(box[0], box[1])
+        xs = [(p[0] - box[0][0]) * bu[0] + (p[1] - box[0][1]) * bu[1]
+              for p in self.region.exterior.coords]
+        named = [("road side", _band(rest, box[0], bu, min(xs), 0.0)),
+                 ("far side", _band(rest, box[0], bu, self.depth, max(xs)))]
+        mid = _band(rest, box[0], bu, 0.0, self.depth)
+        (nu, _) = _unit(box[0], box[3])
+        ys = [(p[0] - box[0][0]) * nu[0] + (p[1] - box[0][1]) * nu[1]
+              for p in self.region.exterior.coords]
+        named += [("south", _band(mid, box[0], nu, min(ys), 0.0)),
+                  ("north", _band(mid, box[0], nu, math.dist(box[0], box[3]), max(ys)))]
+        left = [(w, g) for w, part in named for g in _parts(part, drop=0.02)]
+        self.balance_where = [w for w, _ in left]
+        return lots, [g for _, g in left], [0.0]
 
     def _rectangles(self, m: int = 600):
         """`n` identical rectangles standing on the road, and what is left over.
@@ -163,7 +256,7 @@ class Frontage:
         named = [("south", _band(rest, self.a, self.u, min(xs), xa)),
                  ("behind", _band(rest, self.a, self.u, xa, xb)),
                  ("north", _band(rest, self.a, self.u, xb, max(xs)))]
-        left = [(w, g) for w, part in named for g in _parts(part, drop=1.0)]
+        left = [(w, g) for w, part in named for g in _parts(part, drop=0.02)]
         self.balance_where = [w for w, _ in left]
         return lots, [g for _, g in left], cuts
 
@@ -188,15 +281,9 @@ class Frontage:
         The length of its boundary sitting at road_w from the frontage line.
         A lot with none is landlocked, which no arrangement here should produce.
         """
-        nx, ny = self.normal
         q = list(g.exterior.coords)
-        tot = 0.0
-        for p0, p1 in zip(q, q[1:]):
-            off = [abs(nx * (p[0] - self.a[0]) + ny * (p[1] - self.a[1]) - self.road_w)
-                   for p in (p0, p1)]
-            if max(off) < 0.02:
-                tot += math.dist(p0, p1)
-        return tot
+        return sum(math.dist(p0, p1) for p0, p1 in zip(q, q[1:])
+                   if self._on_inner(p0) and self._on_inner(p1))
 
     @property
     def frontages(self) -> list[float]:
@@ -225,8 +312,13 @@ class Frontage:
                 return f"{w:.2f} x {d:.2f}"
         return _fan_why(tidy(g))
 
-    def audit(self, tol=TOL):
-        """Nothing is wasted here, so the lots and the road are the whole plot."""
+    def audit(self, tol=0.05):
+        """Every piece counted, and the pieces are the whole plot.
+
+        Tighter than the package tolerance on purpose. A carve that quietly
+        drops a sliver still looks right at a loose one, and the tally is the
+        only thing on these sheets that cannot be checked by eye.
+        """
         for p in self.pieces():
             p.verify(tol)
         for i, g in enumerate(self.lots):
@@ -234,7 +326,7 @@ class Frontage:
                 raise AssertionError(f"lot {i + 1} leaves the plot")
             if g.intersection(self.road).area > tol:
                 raise AssertionError(f"lot {i + 1} overlaps the road")
-            if self.frontage(g) < 1.0:
+            if self.square_to is None and self.frontage(g) < 1.0:
                 raise AssertionError(f"lot {i + 1} has no frontage on the road")
         spread = max(g.area for g in self.lots) - min(g.area for g in self.lots)
         if spread > tol:
@@ -276,27 +368,66 @@ class Frontage:
                 f"  tally {t['total']:,.1f} of {t['plot']:,.1f} ft2")
 
 
+def flush_gate(land: Polygon, edge: int, square_to: int, far_w: float) -> float:
+    """The gate width that squares the road's inner edge to another boundary.
+
+    A rectangle lies flush only against a line it is parallel to. So lots set
+    out parallel to `square_to` reach the road along their whole side only when
+    the inner edge is square to that boundary, and that fixes the gate width
+    once the far end is chosen. Anything else leaves a strip between the two.
+    """
+    q = list(land.exterior.coords[:-1])
+    a, b = q[edge], q[(edge + 1) % len(q)]
+    e0, e1 = q[square_to], q[(square_to + 1) % len(q)]
+    d = (b[0] - a[0], b[1] - a[1])
+    (u, _) = _unit(a, b)
+    n = (-u[1], u[0])
+    # against a point inside the plot. Testing against a corner of the road's
+    # own edge gives a dot product of zero, so the normal never gets turned.
+    inside = land.representative_point()
+    if n[0] * (inside.x - a[0]) + n[1] * (inside.y - a[1]) < 0:
+        n = (-n[0], -n[1])
+    t = (e1[0] - e0[0], e1[1] - e0[1])
+    den = n[0] * t[0] + n[1] * t[1]
+    if abs(den) < 1e-9:
+        raise AssertionError("that boundary is parallel to the road")
+    return far_w + (d[0] * t[0] + d[1] * t[1]) / den
+
+
+def options(key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
+    """Every way of carving this plot that is worth putting on paper."""
+    rec, _, _ = build(key, road_w, n)
+    land = Polygon([(x / 0.3048, y / 0.3048) for x, y in rec["corners_m"]])
+    gate = round(flush_gate(land, rec["road"]["edge"], 0, road_w), 2)
+    return [dict(tag="A", shape="fan"),
+            dict(tag="B", shape="rect"),
+            dict(tag="C", shape="rect", gate_w=31.0, square_to=0),
+            dict(tag="D", shape="rect", gate_w=gate, square_to=0)]
+
+
 def build(key: str = "176-9B2", road_w: float = 23.0, n: int = 4,
-          shape: str = "fan"):
+          shape: str = "fan", gate_w: float | None = None,
+          square_to: int | None = None, tag: str = ""):
     """(record, carve, letters) for one survey in `tslr/surveys`."""
     import json
     from pathlib import Path
     rec = json.loads((Path(__file__).parent / "surveys" / f"{key}.json").read_text())
     ft = 1 / 0.3048
     land = Polygon([(x * ft, y * ft) for x, y in rec["corners_m"]])
-    f = Frontage(land, edge=rec["road"]["edge"], road_w=road_w, n=n, shape=shape)
+    f = Frontage(land, edge=rec["road"]["edge"], road_w=road_w, n=n, shape=shape,
+                 gate_w=gate_w, square_to=square_to)
+    f.tag = tag
     letters = dict(zip(rec["walk"], "ABCDEFGH"))
     return rec, f, letters
 
 
-def pdf(out, key: str = "176-9B2", road_w: float = 23.0, n: int = 4,
-        shapes=("fan", "rect")):
+def pdf(out, key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
     import subprocess
     import tempfile
     from pathlib import Path
     from . import pages
     from .sheet import Paper, Sheet
-    carves = [build(key, road_w, n, sh) for sh in shapes]
+    carves = [build(key, road_w, n, **o) for o in options(key, road_w, n)]
     rec, f, letters = carves[0]
     # the largest standard scale whose drawing still fits the sheet, so a ruler
     # on the print agrees with the figures
@@ -394,8 +525,38 @@ def _section(rec, f, letters, sh_svg) -> str:
     lo, _ = f.widths
     one = f.lots[0]
     q = list(one.exterior.coords[:-1])
-    if f.shape == "rect":
-        title = f"Option B — {f.n} identical rectangles, balance separate"
+    tag = getattr(f, "tag", "")
+    if f.square_to is not None:
+        flush = f.frontage(f.lots[0]) > 1.0
+        title = (f"Option {tag} — {f.n} rectangles parallel to AB, "
+                 + ("flush on the road" if flush else "as asked, 31 ft at the gate"))
+        sub = (f"{math.dist(q[0], q[1]):.2f} × {math.dist(q[1], q[2]):.2f} ft each, "
+               f"{one.area:,.0f} ft² · {one.area / CENT:.2f} cents · road "
+               f"{f.gate_end:.2f} ft at the gate to {f.far_end:.2f} ft")
+        notes = [
+            ("", f"<b>The lots run parallel to AB,</b> the north boundary, not "
+                 f"square to the road. Each is {math.dist(q[0], q[1]):.2f} by "
+                 f"{math.dist(q[1], q[2]):.2f} ft, {one.area:,.0f} ft² "
+                 f"({one.area / CENT:.2f} cents)."),
+            (("" if flush else " warn"),
+             (f"<b>Every lot reaches the road along its whole side,</b> "
+              f"{f.frontage(one):.2f} ft of it. That works because the road's inner "
+              f"edge is square to AB, which is what a {f.gate_end:.2f} ft gate buys: "
+              f"a rectangle lies flush only against a line it is parallel to."
+              if flush else
+              f"<b>No lot reaches the road.</b> A "
+              f"{f.balance[f.balance_where.index('road side')].area:,.0f} ft² strip "
+              f"runs between the block and the road, because at {f.gate_end:.2f} ft "
+              f"the inner edge is not square to AB and a rectangle cannot lie flush "
+              f"against it. The strip has to join the road or the lots before this "
+              f"can be sold.")),
+            ("", f"<b>The balance is {t['balance']:,.0f} ft² "
+                 f"({t['balance'] / t['plot']:.1%}) in {len(f.balance)} parcels:</b> "
+                 + ", ".join(f"{w} {g.area:,.0f} ft²"
+                             for w, g in zip(f.balance_where, f.balance)) + "."),
+        ]
+    elif f.shape == "rect":
+        title = f"Option {tag} — {f.n} identical rectangles, balance separate"
         sub = (f"{math.dist(q[0], q[1]):.2f} × {math.dist(q[1], q[2]):.2f} ft each, "
                f"{one.area:,.0f} ft² · {one.area / CENT:.2f} cents")
         notes = [
@@ -416,7 +577,7 @@ def _section(rec, f, letters, sh_svg) -> str:
                  f"land is not lost, it moves into the balance parcels."),
         ]
     else:
-        title = f"Option A — {f.n} equal lots, nothing left over"
+        title = f"Option {tag} — {f.n} equal lots, nothing left over"
         sub = f"{one.area:,.0f} ft² · {one.area / CENT:.2f} cents each"
         notes = [
             ("", f"<b>Nothing is left over.</b> The {f.n} lots and the road are the "
@@ -428,10 +589,15 @@ def _section(rec, f, letters, sh_svg) -> str:
                  f"rectangles. Frontages run "
                  f"{', '.join(f'{x:.2f}' for x in f.frontages)} ft."),
         ]
-    notes.append(("", f"<b>The road holds {lo:.2f} ft at its narrowest.</b> Its inner "
-                      f"edge runs parallel to the west boundary, so it is {lo:.2f} ft "
-                      f"the whole {f.run:.2f} ft up from the gate at "
-                      f"{letters[rec['walk'][4]]}, neither pinching nor splaying."))
+    _, hi = f.widths
+    notes.append(("", f"<b>The road holds {lo:.2f} ft at its narrowest.</b> "
+                      + (f"It is set out {f.gate_end:.2f} ft at the gate and "
+                         f"{f.far_end:.2f} ft at the top, so it opens to {hi:.2f} ft "
+                         f"where a car has to turn in."
+                         if f.gate_w is not None else
+                         f"Its inner edge runs parallel to the west boundary, so it is "
+                         f"{lo:.2f} ft the whole {f.run:.2f} ft up from the gate at "
+                         f"{letters[rec['walk'][4]]}, neither pinching nor splaying.")))
     return SECTION.format(
         title=title, sub=sub, svg=sh_svg, rows=rows, tot=t["total"],
         tot_c=t["total"] / CENT, tot_m=t["total"] * 0.3048 ** 2,
@@ -454,7 +620,7 @@ def _svg(rec, f, letters) -> str:
 def page(out, key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
     """A page of its own for this survey, next to the TS 11/14/18 viewer."""
     from pathlib import Path
-    carves = [build(key, road_w, n, sh) for sh in ("fan", "rect")]
+    carves = [build(key, road_w, n, **o) for o in options(key, road_w, n)]
     rec, fan, letters = carves[0]
     _, rect, _ = carves[1]
     drawn = fan.land.area * 0.3048 ** 2
