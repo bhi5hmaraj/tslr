@@ -667,3 +667,27 @@ def test_the_sheet_and_the_page_print_the_same_schedule():
                 or "ft long" in how, (o["tag"], name, how)
             if name == "Road":
                 assert "ft long" in how
+
+
+def test_the_page_can_hover_every_piece_it_draws():
+    """The drawing and the schedule are the same pieces twice. Hovering either
+    lights both, which only works while every shape has a row to match."""
+    import re
+    import tempfile
+    from pathlib import Path
+    from tslr.frontage import build, options, page
+    with tempfile.TemporaryDirectory() as tmp:
+        html = page(Path(tmp) / "p.html").read_text()
+    shapes = re.findall(r'<path class="hit" data-piece="([^"]+)"', html)
+    rows = re.findall(r'<tr data-piece="([^"]+)"', html)
+    assert shapes and shapes == rows, (len(shapes), len(rows))
+    assert len(set(shapes)) == len(shapes), "two pieces share a key"
+    # every carve contributes all of its pieces, under its own tag
+    want = sum(len(build(**o)[1].pieces()) for o in options())
+    assert len(shapes) == want, (len(shapes), want)
+    for o in options():
+        assert any(k.startswith(f"{o['tag']}-") for k in shapes), o["tag"]
+    # the option being taken forward is marked, in the picker and at its heading
+    assert html.count('class="on"') == 2, html.count('class="on"')
+    assert '<h2 class="on">Option C' in html
+    assert html.count('<h2 class="on">') == 1, "more than one option is marked"

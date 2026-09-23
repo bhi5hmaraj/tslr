@@ -149,6 +149,39 @@ class Frontage:
         return [(self.q0[0] + self.iu[0] * t, self.q0[1] + self.iu[1] * t)
                 for t in (min(ts), max(ts))]
 
+    def recorded(self, a, b, tol=0.05) -> bool:
+        """Is this segment one of the boundaries the FMB writes a figure against?
+
+        A sheet mixes two kinds of number. The four boundary lengths are the
+        survey's own, and everything else follows from choosing a road width
+        and a lot count. Only the first kind can be checked against the record.
+        """
+        q = list(self.land.exterior.coords[:-1])
+        for i in range(len(q)):
+            c, d = q[i], q[(i + 1) % len(q)]
+            if ((math.dist(a, c) < tol and math.dist(b, d) < tol)
+                    or (math.dist(a, d) < tol and math.dist(b, c) < tol)):
+                return True
+        return False
+
+    def to_road(self, p) -> float:
+        """How far a point stands back from the road's inner edge, square to it."""
+        return abs(-self.iu[1] * (p[0] - self.q0[0])
+                   + self.iu[0] * (p[1] - self.q0[1]))
+
+    @property
+    def setback(self):
+        """Where the block stands off the road, as (near end, far end) in feet.
+
+        Zero at both ends means the lots sit flush. Lots set out parallel to
+        another boundary lean away from a road that is not square to it, and
+        the wedge this leaves is what makes them landlocked.
+        """
+        if self.shape != "rect" or self.square_to is None:
+            return (0.0, 0.0)
+        q = list(self.block.exterior.coords[:-1])
+        return (self.to_road(q[0]), self.to_road(q[3]))
+
     def _local(self, p):
         """A point as (along the road, out from the frontage line)."""
         return ((p[0] - self.a[0]) * self.u[0] + (p[1] - self.a[1]) * self.u[1],
@@ -312,6 +345,17 @@ class Frontage:
                 return f"{w:.2f} x {d:.2f}"
         return _fan_why(tidy(g))
 
+    def sides_of(self, g) -> str:
+        """A piece's edges, with a star on any that is a recorded boundary."""
+        q = list(tidy(g).exterior.coords[:-1])
+        out = []
+        for i in range(len(q)):
+            a, b = q[i], q[(i + 1) % len(q)]
+            if math.dist(a, b) < 0.5:
+                continue
+            out.append(f"{math.dist(a, b):.2f}" + ("*" if self.recorded(a, b) else ""))
+        return " / ".join(out)
+
     def rows(self) -> list[tuple]:
         """Every piece as the schedule prints it: name, access, working, areas.
 
@@ -330,7 +374,7 @@ class Frontage:
                 how = (f"{w:.2f} ft on the road" if w > 1.0
                        else "none — landlocked")
             out.append((p.name, how, p.why, p.area, p.area / CENT,
-                        p.area * 0.3048 ** 2))
+                        p.area * 0.3048 ** 2, self.sides_of(p.poly)))
         return out
 
     def audit(self, tol=0.05):
@@ -420,15 +464,15 @@ def options(key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
     rec, _, _ = build(key, road_w, n)
     land = Polygon([(x / 0.3048, y / 0.3048) for x, y in rec["corners_m"]])
     gate = round(flush_gate(land, rec["road"]["edge"], 0, road_w), 2)
-    return [dict(tag="A", shape="fan"),
-            dict(tag="B", shape="rect"),
-            dict(tag="C", shape="rect", gate_w=31.0, square_to=0),
-            dict(tag="D", shape="rect", gate_w=gate, square_to=0)]
+    return [dict(tag="C", shape="rect", gate_w=31.0, square_to=0, chosen=True),
+            dict(tag="D", shape="rect", gate_w=gate, square_to=0),
+            dict(tag="A", shape="fan"),
+            dict(tag="B", shape="rect")]
 
 
 def build(key: str = "176-9B2", road_w: float = 23.0, n: int = 4,
           shape: str = "fan", gate_w: float | None = None,
-          square_to: int | None = None, tag: str = ""):
+          square_to: int | None = None, tag: str = "", chosen: bool = False):
     """(record, carve, letters) for one survey in `tslr/surveys`."""
     import json
     from pathlib import Path
@@ -437,7 +481,7 @@ def build(key: str = "176-9B2", road_w: float = 23.0, n: int = 4,
     land = Polygon([(x * ft, y * ft) for x, y in rec["corners_m"]])
     f = Frontage(land, edge=rec["road"]["edge"], road_w=road_w, n=n, shape=shape,
                  gate_w=gate_w, square_to=square_to)
-    f.tag = tag
+    f.tag, f.chosen = tag, chosen
     letters = dict(zip(rec["walk"], "ABCDEFGH"))
     return rec, f, letters
 
@@ -453,7 +497,10 @@ def pdf(out, key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
     # the largest standard scale whose drawing still fits the sheet, so a ruler
     # on the print agrees with the figures
     x0, y0, x1, y1 = f.land.bounds
-    fit = lambda d: ((x1 - x0) * 0.3048 * 1000 / d <= 246
+    # This plot is taller than it is wide, so on a landscape sheet the height
+    # binds and a column of the width goes spare. The legend lives in that
+    # column, which is why the width budget below is the narrower one.
+    fit = lambda d: ((x1 - x0) * 0.3048 * 1000 / d <= 168
                      and (y1 - y0) * 0.3048 * 1000 / d <= 150)
     denom = next((d for d in (100, 125, 150, 200, 250, 300, 350, 400, 500) if fit(d)), 500)
     paper = Paper("A4", 297.0, 210.0, denom, 0.78, 32.0)
@@ -493,6 +540,17 @@ tr.bal td {{ color: #8a6414; background: #fffdf7; }}
 tfoot td {{ font-weight: 700; border-top: 2px solid #999; border-bottom: none;
            background: #f2f9f2; }}
 .why {{ color: #555; font-size: 12px; }}
+.rec {{ color: #1b5e20; font-weight: 700; }}
+.key {{ color: #666; font-size: 12.5px; margin: 10px 0 0; }}
+/* hover a piece on the drawing or its row: both light up, and a tip follows */
+svg .hit {{ fill: transparent; cursor: pointer; }}
+svg .lit {{ stroke: #c62828 !important; stroke-width: 1.4 !important; }}
+svg path.lit {{ fill: #ffe9e9 !important; }}
+tr.lit td {{ background: #ffe9e9 !important; }}
+#tip {{ position: fixed; z-index: 9; pointer-events: none; display: none;
+       background: #111; color: #fff; padding: 6px 9px; border-radius: 4px;
+       font-size: 12px; line-height: 1.45; max-width: 260px; }}
+#tip b {{ display: block; }}
 .note {{ background: #fafafa; border-left: 3px solid #1b5e20; padding: 8px 12px;
         margin: 8px 0; font-size: 13.5px; }}
 .note.warn {{ border-left-color: #a00; }}
@@ -500,6 +558,11 @@ tfoot td {{ font-weight: 700; border-top: 2px solid #999; border-bottom: none;
 .pick div {{ flex: 1 1 320px; border: 1px solid #e2e2e2; border-radius: 4px;
             padding: 10px 14px; font-size: 13.5px; }}
 .pick b {{ display: block; margin-bottom: 3px; }}
+.pick div.on {{ border-color: #1b5e20; border-width: 2px; background: #f4faf4; }}
+.pick div.on b::after {{ content: " — CHOSEN"; color: #1b5e20; }}
+h2.on {{ border-left: 4px solid #1b5e20; padding-left: 9px; }}
+h2.off {{ color: #888; }}
+h2.off + figure, h2.off + figure + table, h2.off ~ .note {{ opacity: .72; }}
 footer {{ margin-top: 34px; color: #888; font-size: 12px; }}
 </style>
 <nav><a href="index.html">&larr; TS 11/14/18</a></nav>
@@ -508,12 +571,48 @@ footer {{ margin-top: 34px; color: #888; font-size: 12px; }}
   FMB at 1:{scale}, approved {approved} ·
   common road {road_w:.0f} ft up the west boundary, gate at {gate}</p>
 <div class="pick">{pick}</div>
+<p class="key"><span class="rec">*</span> marks a figure the FMB records. Every
+  other number on this page is derived from those, the road width and the lot
+  count, so it moves if either of those changes.</p>
 {sections}
+<div id="tip"></div>
+<script>
+// The drawing and the schedule are the same pieces twice, so hovering either
+// lights both. Pieces are matched by a data-piece stamped on the shape and on
+// the row; nothing else on the page is interactive.
+const tip = document.getElementById("tip");
+function lite(key, on, ev) {{
+  for (const el of document.querySelectorAll(`[data-piece="${{key}}"]`))
+    el.closest("tr") ? el.closest("tr").classList.toggle("lit", on)
+                     : el.classList.toggle("lit", on);
+  if (!on) {{ tip.style.display = "none"; return; }}
+  const row = document.querySelector(`tr[data-piece="${{key}}"]`);
+  if (!row) return;
+  const c = row.cells;
+  tip.innerHTML = `<b>${{c[0].textContent}}</b>${{c[3].textContent}} ft&sup2; ·
+    ${{c[4].textContent}} cents · ${{c[5].textContent}} m&sup2;<br>${{c[2].textContent}}
+    <br>sides ${{row.dataset.sides}}<br>${{c[1].textContent}}`;
+  tip.style.display = "block";
+  move(ev);
+}}
+function move(ev) {{
+  if (!ev || tip.style.display === "none") return;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(ev.clientX + pad, innerWidth - w - 8) + "px";
+  tip.style.top = Math.max(8, Math.min(ev.clientY + pad, innerHeight - h - 8)) + "px";
+}}
+for (const el of document.querySelectorAll("[data-piece]")) {{
+  const key = el.dataset.piece;
+  el.addEventListener("mouseenter", e => lite(key, true, e));
+  el.addEventListener("mousemove", move);
+  el.addEventListener("mouseleave", () => lite(key, false));
+}}
+</script>
 <footer>Built by <code>python -m tslr.frontage</code>. Every figure on this page is
   derived, and the checks above run on each build.</footer>
 """
 
-SECTION = """<h2>{title} <small>{sub}</small></h2>
+SECTION = """<h2 class="{cls}">{title} <small>{sub}</small></h2>
 <figure>{svg}</figure>
 <table>
   <thead><tr><th>piece</th><th>frontage on the road</th><th>area = ½ × base × height</th>
@@ -530,9 +629,12 @@ SECTION = """<h2>{title} <small>{sub}</small></h2>
 def _section(rec, f, letters, sh_svg) -> str:
     """One option: its drawing, its schedule, and what it costs or buys."""
     rows = ""
-    for name, how, why, ft2, c, m2 in f.rows():
+    for name, how, why, ft2, c, m2, sides in f.rows():
         bal = name.startswith("Balance")
-        rows += (f'<tr{" class=\'bal\'" if bal else ""}><td>{name}</td>'
+        key = f"{f.tag}-{name}".replace(" ", "_")
+        rows += (f'<tr data-piece="{key}" data-sides="{sides}"'
+                 f'{" class=\'bal\'" if bal else ""}>'
+                 f'<td>{name}</td>'
                  f'<td>{how.replace("none —", "<b>none</b> —")}</td>'
                  f'<td class="why">{why}</td><td class="n">{ft2:,.1f}</td>'
                  f'<td class="n">{c:.2f}</td><td class="n">{m2:.1f}</td></tr>')
@@ -614,6 +716,7 @@ def _section(rec, f, letters, sh_svg) -> str:
                          f"{lo:.2f} ft the whole {f.run:.2f} ft up from the gate at "
                          f"{letters[rec['walk'][4]]}, neither pinching nor splaying.")))
     return SECTION.format(
+        cls="on" if getattr(f, "chosen", False) else "off",
         title=title, sub=sub, svg=sh_svg, rows=rows, tot=t["total"],
         tot_c=t["total"] / CENT, tot_m=t["total"] * 0.3048 ** 2,
         notes="".join(f'<p class="note{c}">{x}</p>' for c, x in notes))
@@ -641,15 +744,23 @@ def page(out, key: str = "176-9B2", road_w: float = 23.0, n: int = 4):
     drawn = fan.land.area * 0.3048 ** 2
     reg = rec["registered_m2"]
 
-    pick = (f'<div><b>Option A — equal lots, nothing left over</b>'
-            f'{fan.n} lots of {fan.lots[0].area:,.0f} ft² '
-            f'({fan.lots[0].area / CENT:.2f} cents), no two the same shape. '
-            f'Every square foot is in a lot or the road.</div>'
-            f'<div><b>Option B — identical rectangles, balance separate</b>'
-            f'{rect.n} lots of {rect.lots[0].area:,.0f} ft² '
-            f'({rect.lots[0].area / CENT:.2f} cents), all the same rectangle. '
-            f'{rect.tally()["balance"]:,.0f} ft² falls out as '
-            f'{len(rect.balance)} balance parcels.</div>')
+    pick = ""
+    for _, g, _ in carves:
+        one = g.lots[0]
+        q = list(one.exterior.coords[:-1])
+        size = (f"{math.dist(q[0], q[1]):.2f} × {math.dist(q[1], q[2]):.2f} ft, "
+                if g.shape == "rect" else "")
+        road = (f"road {g.gate_end:.0f}→{g.far_end:.0f} ft"
+                if g.gate_w is not None else f"road {g.road_w:.0f} ft")
+        pick += (f'<div class="{"on" if g.chosen else ""}"><b>Option {g.tag}</b>'
+                 f'{g.n} lots, {size}{one.area:,.0f} ft² '
+                 f'({one.area / CENT:.2f} cents) · {road} · '
+                 + (f'frontage {g.frontage(one):.2f} ft each'
+                    if g.frontage(one) > 1.0 else
+                    f'<span style="color:#a00">no frontage, '
+                    f'{max(g.setback):.2f} ft off the road</span>')
+                 + (f' · balance {g.tally()["balance"]:,.0f} ft²'
+                    if g.balance else " · nothing left over") + '</div>')
 
     common = [
         ("", f"<b>The FMB agrees with its own register.</b> The line work encloses "

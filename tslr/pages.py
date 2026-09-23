@@ -381,6 +381,11 @@ def x_schedule(sh: Sheet, rec: dict, xc: dict, shape: str, p: G.Plot, others: li
 
 
 # ------------------------------------------- a road down one side, equal lots
+def _left(f, p) -> bool:
+    """Is this point on the far side of the road's inner edge from the road?"""
+    return (-f.iu[1] * (p[0] - f.q0[0]) + f.iu[0] * (p[1] - f.q0[1])) < 0
+
+
 def _option(f) -> str:
     kind = ("IDENTICAL RECTANGLES, BALANCE SEPARATE" if f.shape == "rect"
             else "EQUAL LOTS, NOTHING LEFT OVER")
@@ -420,8 +425,8 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
     walk = rec["walk"]
     for i, k in enumerate(walk):
         a, b = corner[k], corner[walk[(i + 1) % len(walk)]]
-        lab = f"{letters[k]}{letters[walk[(i + 1) % len(walk)]]} " \
-              f"{math.dist(a, b):.2f}"
+        lab = (f"{letters[k]}{letters[walk[(i + 1) % len(walk)]]} "
+               f"{math.dist(a, b):.2f}*")
         sh.dim(a, b, -11, lab)
 
     # what each lot fronts onto, read along that inner edge
@@ -441,6 +446,21 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         q = list(f.lots[0].exterior.coords[:-1])
         sh.dim(q[0], q[1], -4, f"{math.dist(q[0], q[1]):.2f}", colour="#1b5e20")
         sh.dim(q[1], q[2], -4, f"{math.dist(q[1], q[2]):.2f}", colour="#1b5e20")
+    # How far the lots stand back from the road, at each end of the block. It
+    # decides whether they front the road at all, and on a wedge it cannot be
+    # read off any one side.
+    near, far = f.setback
+    blk = list(f.block.exterior.coords[:-1]) if max(near, far) > 0.05 else []
+    for p, gap in ([(blk[0], near), (blk[3], far)] if blk else []):
+        if gap <= 0.05:                  # a lot sitting on the road needs no figure
+            continue
+        sgn = 1 if _left(f, p) else -1
+        foot = (p[0] + f.iu[1] * gap * sgn, p[1] - f.iu[0] * gap * sgn)
+        sh.line(p, foot, "#a00", 0.4, dash="1.2 0.9")
+        mx, my = sh.px(((p[0] + foot[0]) / 2, (p[1] + foot[1]) / 2))
+        sh.out.append(f'<rect x="{mx - 16:.2f}" y="{my - 7.6:.2f}" width="32" '
+                      f'height="4.4" fill="white" opacity=".9"/>')
+        sh.txt(mx, my - 4.2, f"{gap:.2f} off the road", 2.8, weight="bold", fill="#a00")
     sh.dim(corner[rec["road"]["along"].split("-")[0]], f.inner[0], -4,
            f"{f.gate_end:.2f}", colour="#a00")
     if f.gate_w is not None:
@@ -461,7 +481,10 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         sh.out.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="2.6" fill="#fff" '
                       f'stroke="#c98a1e" stroke-width="0.4"/>')
         sh.txt(x, y + 1.3, str(i), 3.3, weight="bold", fill="#c98a1e")
-    ly = sh.p.h - 34
+    # This plot is taller than it is wide, so on a landscape sheet a column
+    # of the width goes spare. The legend takes that column rather than the
+    # space under the drawing, which the boundary dimensions already use.
+    ly = 42.0
     if f.balance:
         sh.txt(14, ly, "BALANCE, not spoken for", 3.0, "start", weight="bold",
                fill="#c98a1e")
@@ -473,6 +496,13 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
                    + (f"{f.frontage(g):.2f} ft on the road" if free
                       else "no frontage, attach to the lot beside it"),
                    2.9, "start", fill="#555" if free else "#a00")
+    if max(f.setback) > 0.05:
+        ly += 8.0
+        for line in _wrap(f"The lots stand {max(f.setback):.2f} ft off the road at "
+                          f"the south end and {min(f.setback):.2f} at the north, "
+                          f"so none of them fronts it.", 34):
+            sh.txt(14, ly, line, 2.9, "start", weight="bold", fill="#a00")
+            ly += 4.4
     c = f.road.representative_point()
     x, y = sh.px((c.x, c.y))
     sh.txt(x, y, f"COMMON ROAD {f.road_w:.0f} ft", 3.4, weight="bold",
@@ -489,6 +519,20 @@ def frontage_plan(sh: Sheet, rec: dict, f, letters: dict, web=False):
         sh.out.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="1.1" fill="#000"/>')
         sh.txt(x + 4.5, y - 2.5, f"{letters[k]}", 4.6, weight="bold")
         sh.txt(x + 4.5, y + 1.8, f"({k})", 2.8, fill="#777")
+    # A transparent copy of every piece on top, tagged with its name. The page
+    # hovers these; on paper they are invisible and cost nothing.
+    for pc in f.pieces():
+        key = f"{getattr(f, 'tag', '')}-{pc.name}".replace(" ", "_")
+        d = "M " + " L ".join(f"{x:.3f},{y:.3f}" for x, y in
+                              (sh.px(c) for c in G.verts(pc.poly))) + " Z"
+        sh.out.append(f'<path class="hit" data-piece="{key}" d="{d}" '
+                      f'fill="transparent" stroke="none"/>')
+    # under the legend, clear of the drawing and its boundary dimensions
+    ly += 8
+    for line in _wrap("* on the FMB. Every other figure follows from the road "
+                      "width and the lot count.", 34):
+        sh.txt(14, ly, line, 2.8, "start", fill="#666")
+        ly += 4.0
     # a screen has no scale, and the 100 mm check bar means nothing on one
     if not web:
         sh.scalebar(14, sh.p.h - 13)
@@ -502,7 +546,7 @@ def frontage_schedule(sh: Sheet, rec: dict, f, letters: dict):
     _title(sh, f"{rec['survey']} · areas", "every length in feet",
            _option(f), "north up")
     rows = [([name, how, why, f"{ft2:,.1f}", f"{c:.2f}", f"{m2:.1f}"], False)
-            for name, how, why, ft2, c, m2 in f.rows()]
+            for name, how, why, ft2, c, m2, _ in f.rows()]
     t = f.tally()
     y = sh.table(14, sh.p.w - 28, 34,
                  "Every piece, and the arithmetic behind it", rows,
